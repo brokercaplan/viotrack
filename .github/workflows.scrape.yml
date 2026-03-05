@@ -1,0 +1,21 @@
+name: Scrape Miami Beach Violations
+on:
+  schedule:
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests beautifulsoup4 pdfplumber
+      - run: python scraper.py
+      - run: |
+          git config user.name "VioTrack Bot"
+          git config user.email "actions@github.com"
+          git add data/violations.json
+          git diff --staged --quiet || git commit -m "update violations data"
+          git push
