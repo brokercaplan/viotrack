@@ -1,0 +1,94 @@
+{
+  "lastUpdated": "2026-03-05T08:00:00Z",
+  "myProperties": [
+    {
+      "id": 1,
+      "property": "411 WASHINGTON AVE",
+      "caseNum": "SMB2025-02696",
+      "deptViol": "BVP24000187",
+      "type": "Building – Plumbing",
+      "status": "Open",
+      "hearing": "03/05/2026",
+      "balance": 17836,
+      "dailyFine": null,
+      "owner": "THE BERNSTEIN LAW FIRM C/O THE MICHAEL KADOSH TRUST",
+      "description": "Unpermitted plumbing / French drain water discharge onto adjacent property.",
+      "code": "FBC Plumbing §P2719"
+    },
+    {
+      "id": 2,
+      "property": "411 WASHINGTON AVE",
+      "caseNum": "SMB2025-02955",
+      "deptViol": "BVM24000229",
+      "type": "Building – Mechanical",
+      "status": "Open",
+      "hearing": "03/05/2026",
+      "balance": 17836,
+      "dailyFine": null,
+      "owner": "THE BERNSTEIN LAW FIRM C/O THE MICHAEL KADOSH TRUST",
+      "description": "Unpermitted mini-split AC units installed throughout hotel rooms without mechanical permits.",
+      "code": "FBC Mechanical §603"
+    },
+    {
+      "id": 3,
+      "property": "411 WASHINGTON AVE",
+      "caseNum": "SMB2025-02956",
+      "deptViol": "BVE24000185",
+      "type": "Building – Electrical",
+      "status": "Open",
+      "hearing": "03/05/2026",
+      "balance": 17836,
+      "dailyFine": null,
+      "owner": "THE BERNSTEIN LAW FIRM C/O THE MICHAEL KADOSH TRUST",
+      "description": "12 unpermitted security cameras installed without electrical permits.",
+      "code": "NEC Article 300"
+    },
+    {
+      "id": 4,
+      "property": "411 WASHINGTON AVE",
+      "caseNum": "SMB2024-02129",
+      "deptViol": "US2024-04763",
+      "type": "Unsafe Structures",
+      "status": "Open",
+      "hearing": "01/07/2026",
+      "balance": 169604,
+      "dailyFine": 500,
+      "owner": "THE BERNSTEIN LAW FIRM C/O THE MICHAEL KADOSH TRUST",
+      "description": "Building declared unsafe – 40-year recertification non-compliance. Engineer reports required.",
+      "code": "F.S. §553.899"
+    },
+    {
+      "id": 5,
+      "property": "1941 LIBERTY AVE",
+      "caseNum": "SMB2025-02916",
+      "deptViol": "EBR2500868",
+      "type": "40-Yr Recertification",
+      "status": "Open",
+      "hearing": "02/09/2026",
+      "balance": 0,
+      "dailyFine": 500,
+      "owner": "MICHAEL KADOSH TRUST",
+      "description": "40-year recertification not completed. Both structural and electrical engineer reports required.",
+      "code": "F.S. §553.899"
+    },
+    {
+      "id": 6,
+      "property": "1941 LIBERTY AVE",
+      "caseNum": "—",
+      "deptViol": "BC2015138",
+      "type": "Suspended Permit",
+      "status": "In Progress",
+      "hearing": "—",
+      "balance": 0,
+      "dailyFine": null,
+      "owner": "MICHAEL KADOSH TRUST",
+      "description": "Permit suspended – reactivated by Delantero Design. Final inspections required.",
+      "code": "FBC §105.4"
+    }
+  ],
+  "cityFeed": [],
+  "watchAddresses": [
+    "411 WASHINGTON AVE",
+    "1941 LIBERTY AVE"
+  ]
+}

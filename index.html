@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>VioTrack · Aventura Code Violations</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&display=swap" rel="stylesheet"/>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:#f4f6f9;color:#1a1a2e;font-family:'Segoe UI',Arial,sans-serif;}
+  ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:#d1d9e6;border-radius:3px}
+  input,textarea,button,select{font-family:'Segoe UI',Arial,sans-serif;}
+  textarea{resize:vertical;}
+  a{text-decoration:none;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const DEPT_CONTACTS = [
+  { dept:"Special Magistrate Office", phone:"(305) 673-7181", email:"SpecialMagistrate@miamibeachfl.gov", role:"Case filings, continuances, fine payments" },
+  { dept:"Building Department", phone:"(305) 673-7610 x22585", email:"buildingviolations@miamibeachfl.gov", role:"Permit status, inspection scheduling, unsafe structures" },
+  { dept:"Building Recertification", phone:"(305) 673-7610", email:"BuildingRecertification@miamibeachfl.gov", role:"40-year recertification submissions" },
+  { dept:"Code Compliance", phone:"(305) 673-7555", email:"codecompliance@miamibeachfl.gov", role:"City code violations, cameras, signs, noise" },
+  { dept:"Lien Research / Finance", phone:"(305) 673-7420", email:"LienResearch@miamibeachfl.gov", role:"SM lien releases for closings / refinances" },
+  { dept:"Public Records / City Clerk", phone:"(305) 673-7411", email:"ResearchRequest@miamibeachfl.gov", role:"Case files, hearing audio, violation details" },
+];
+
+const SAMPLE_PLAN_DEFAULT = {
+  priority:"HIGH", estimatedCost:"$6,000 – $10,000", timeline:"4–6 weeks",
+  steps:[
+    {step:1,action:"Pull retroactive permit for the violation work",who:"Jose Subero",contact:"941-223-6457",docNeeded:"Permit application",dueDate:"ASAP",notes:"After-the-fact permit — 2× fee applies"},
+    {step:2,action:"Submit licensed contractor affidavit certifying completed work meets code",who:"Licensed Contractor",contact:"TBD",docNeeded:"Signed & sealed affidavit",dueDate:"Within 1 week",notes:"Must be FL-licensed"},
+    {step:3,action:"Schedule city inspection",who:"Aventura Code Violations",contact:"(305) 673-7610 x22585",docNeeded:"Permit number",dueDate:"After affidavit filed",notes:""},
+    {step:4,action:"Obtain final inspection sign-off and close permit",who:"Jose Subero",contact:"941-223-6457",docNeeded:"Final inspection card",dueDate:"2–3 weeks post-inspection",notes:""},
+    {step:5,action:"Present permit closure to Special Magistrate — request fine reduction",who:"Attorney / Aventura Code Violations",contact:"(305) 673-7181",docNeeded:"Closed permit letter",dueDate:"By hearing date",notes:"Request mitigation given proactive compliance"}
+  ],
+  warnings:["After-the-fact permits incur 2× normal fee + $500 fine","Hearing date is approaching — act quickly"],
+  quickWins:["Call Jose Subero today to start permit paperwork","Confirm requirements with Building Dept before filing"]
+};
+
+const SAMPLE_PLAN_CRITICAL = {
+  priority:"CRITICAL", estimatedCost:"$20,000 – $35,000", timeline:"8–12 weeks",
+  steps:[
+    {step:1,action:"Confirm status of 40-year recertification reports with engineer",who:"Masood Hajali",contact:"Calc Engineering",docNeeded:"Structural + electrical reports (signed/sealed)",dueDate:"IMMEDIATELY",notes:"$500/day fine is accruing — every day costs money"},
+    {step:2,action:"Submit signed/sealed engineer reports to Building Recertification",who:"Aventura Code Violations",contact:"BuildingRecertification@miamibeachfl.gov",docNeeded:"Both engineer reports",dueDate:"This week",notes:""},
+    {step:3,action:"Building Department lifts unsafe structure designation",who:"Aventura Code Violations",contact:"(305) 673-7610",docNeeded:"City confirmation letter",dueDate:"2–4 weeks after submission",notes:""},
+    {step:4,action:"File formal request for fine mitigation with Special Magistrate",who:"Attorney",contact:"(305) 673-7181",docNeeded:"Compliance proof + mitigation letter",dueDate:"Before next hearing",notes:"Balance — mitigation is essential"},
+    {step:5,action:"Negotiate lien reduction or structured payment plan",who:"Attorney",contact:"SpecialMagistrate@miamibeachfl.gov",docNeeded:"Financial docs if applicable",dueDate:"ASAP",notes:"Liens accrue daily — negotiate aggressively"}
+  ],
+  warnings:["$500/DAY FINE ACCRUING — Most urgent case in portfolio","Balance grows daily until resolved","Unsafe structure designation may affect insurance & financing"],
+  quickWins:["Confirm engineer report status TODAY","If reports ready, submit immediately","Partial compliance shown at hearing can pause daily fines"]
+};
+
+const typeIcon = t => t.includes("Electrical")?"⚡":t.includes("Plumbing")?"🔧":t.includes("Mechanical")?"❄️":t.includes("Unsafe")?"🏚":t.includes("Recert")?"📋":t.includes("Code")?"📜":t.includes("Permit")?"🔒":t.includes("Combo")?"🔨":"⚠️";
+const statusStyle = s => s==="Open"?{bg:"#fef2f2",text:"#dc2626",border:"#fecaca"}:s==="In Progress"?{bg:"#fffbeb",text:"#d97706",border:"#fde68a"}:{bg:"#f0fdf4",text:"#16a34a",border:"#bbf7d0"};
+const priorityColor = p => p==="CRITICAL"?"#dc2626":p==="HIGH"?"#ea580c":"#ca8a04";
+const contactStatusColor = s => s==="Emailed"?"#16a34a":s==="No Response"?"#d97706":"#6b7280";
+
+const S = {
+  page:    { background:"#f4f6f9", minHeight:"100vh" },
+  header:  { background:"white", borderBottom:"3px solid #6c5ce7", padding:"18px 28px", display:"flex", justifyContent:"space-between", alignItems:"center", boxShadow:"0 2px 8px rgba(0,0,0,0.08)" },
+  tabBar:  { background:"white", borderBottom:"2px solid #e2e8f0", padding:"0 28px", display:"flex", gap:"4px" },
+  content: { padding:"28px", maxWidth:"1100px", margin:"0 auto" },
+  card:    { background:"white", border:"1px solid #e2e8f0", borderRadius:"12px", boxShadow:"0 1px 4px rgba(0,0,0,0.06)" },
+  kpiGrid: { display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:"16px", marginBottom:"24px" },
+  label:   { fontSize:"11px", color:"#8892a4", letterSpacing:"0.5px", marginBottom:"4px", textTransform:"uppercase" },
+  input:   { width:"100%", background:"#f8fafc", border:"1px solid #d1d9e6", borderRadius:"8px", padding:"10px 14px", color:"#1a1a2e", fontSize:"15px", outline:"none" },
+  btnP:    { background:"linear-gradient(135deg,#6c5ce7,#a855f7)", border:"none", color:"white", borderRadius:"10px", cursor:"pointer", fontWeight:"600" },
+  btnG:    { background:"white", border:"2px solid #d1d9e6", color:"#6b7280", borderRadius:"10px", cursor:"pointer" },
+};
+
+function App() {
+  const [tab, setTab]             = useState(0);
+  const [data, setData]           = useState(null);
+  const [loading, setLoading]     = useState(true);
+  const [planCase, setPlanCase]   = useState(null);
+  const [plan, setPlan]           = useState(null);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [cityFeed, setCityFeed]   = useState([]);
+  const [typeFilter, setTypeFilter] = useState("All");
+  const [outreachCase, setOutreachCase] = useState(null);
+  const [emailDraft, setEmailDraft] = useState({to:"",subject:"",body:""});
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [contacts, setContacts]   = useState([]);
+  const [alerts, setAlerts]       = useState([]);
+  const [newAddr, setNewAddr]     = useState("");
+  const [newAlertEmail, setNewAlertEmail] = useState("");
+
+  // Load data from violations.json on mount
+  useEffect(() => {
+    fetch("data/violations.json")
+      .then(r => r.json())
+      .then(d => {
+        setData(d);
+        setCityFeed(d.cityFeed || []);
+        setAlerts(d.watchAddresses ? d.watchAddresses.map((addr, i) => ({
+          id: i+1, address: addr, email: "aventuracodeviolations@gmail.com",
+          active: true, lastAlert: d.lastUpdated ? d.lastUpdated.split("T")[0] : "Never"
+        })) : []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  if (loading) return (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",flexDirection:"column",gap:"16px"}}>
+      <div style={{fontSize:"40px"}}>⚖️</div>
+      <div style={{fontSize:"18px",color:"#6c5ce7",fontWeight:"600"}}>Loading VioTrack...</div>
+    </div>
+  );
+
+  const myCases    = data?.myProperties || [];
+  const totalFines = myCases.reduce((s,c)=>s+(c.balance||0),0);
+  const dailyTotal = myCases.filter(c=>c.dailyFine).reduce((s,c)=>s+c.dailyFine,0);
+  const uncontacted = cityFeed.filter(c=>!c.contacted).length;
+  const types = ["All",...new Set((data?.cityFeed||[]).map(c=>c.type))];
+  const filtered = typeFilter==="All" ? cityFeed : cityFeed.filter(c=>c.type===typeFilter);
+
+  const DISCLAIMER = "\n\n---\nDisclaimer: Aventura Code Violations makes no representations or guarantees regarding the ability to reduce fines or penalties. However, we have been successful in achieving fine reductions for clients in the past. Results may vary depending on the specific facts and circumstances of each case.";
+
+  const SIGNATURE = "\n\nSincerely,\nAventura Code Violations\naventuracodeviolations@gmail.com\n(305) 523-9801";
+
+  const openPlan = async (c) => {
+    setPlanCase(c); setPlan(null); setPlanLoading(true);
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:1200,
+          messages:[{ role:"user", content:
+            `You are a Miami Beach code violation remediation expert. Generate a step-by-step remediation plan.
+Property: ${c.property} | Case: ${c.caseNum} | Violation: ${c.deptViol} | Type: ${c.type}
+Description: ${c.description} | Fine: $${c.balance} | Daily Fine: ${c.dailyFine?"$"+c.dailyFine+"/day":"None"} | Hearing: ${c.hearing}
+Respond ONLY in JSON (no markdown): {"priority":"CRITICAL|HIGH|MEDIUM","estimatedCost":"$X–$X","timeline":"X weeks","steps":[{"step":1,"action":"...","who":"...","contact":"...","docNeeded":"...","dueDate":"...","notes":"..."}],"warnings":["..."],"quickWins":["..."]}`
+          }]
+        })
+      });
+      const d = await res.json();
+      setPlan(JSON.parse(d.content[0].text.replace(/```json|```/g,"").trim()));
+    } catch(e) {
+      setPlan(c.dailyFine||c.balance>50000 ? SAMPLE_PLAN_CRITICAL : SAMPLE_PLAN_DEFAULT);
+    }
+    setPlanLoading(false);
+  };
+
+  const openOutreach = async (c) => {
+    setOutreachCase(c); setEmailLoading(true);
+    setEmailDraft({to:"",subject:"",body:""});
+    setCityFeed(f=>f.map(x=>x.id===c.id?{...x,contacted:true}:x));
+    setTab(2);
+    const newContact = {id:Date.now(),name:c.owner,email:"",property:c.property,caseNum:c.caseNum,status:"Pending",date:new Date().toISOString().split("T")[0]};
+    setContacts(prev => prev.find(x=>x.caseNum===c.caseNum) ? prev : [...prev, newContact]);
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:900,
+          messages:[{ role:"user", content:
+            `You are writing on behalf of Aventura Code Violations, a professional code violation remediation company with an in-house real estate litigation attorney as a business partner. Write a professional outreach email to the property owner positioning Aventura Code Violations as expert remediation project managers.
+
+The email signature must be exactly:
+Aventura Code Violations
+aventuracodeviolations@gmail.com
+(305) 523-9801
+
+The email must end with this disclaimer before the signature:
+"Disclaimer: Aventura Code Violations makes no representations or guarantees regarding the ability to reduce fines or penalties. However, we have been successful in achieving fine reductions for clients in the past. Results may vary depending on the specific facts and circumstances of each case."
+
+Property: ${c.property} | Owner: ${c.owner} | Case: ${c.caseNum} | Type: ${c.type}
+Description: ${c.description} | Fine: $${c.balance.toLocaleString()}${c.dailyFine?` + $${c.dailyFine}/day accruing`:""} | Hearing: ${c.hearing}
+Respond ONLY in JSON (no markdown): {"subject":"...","body":"..."}`
+          }]
+        })
+      });
+      const d = await res.json();
+      const p = JSON.parse(d.content[0].text.replace(/```json|```/g,"").trim());
+      setEmailDraft({to:"",subject:p.subject,body:p.body});
+    } catch(e) {
+      const ownerFirst = c.owner.includes(",") ? c.owner.split(",")[0] : "Property Owner";
+      setEmailDraft({
+        to:"",
+        subject:`Urgent: Code Violation at ${c.property} — Aventura Code Violations Can Help`,
+        body:`Dear ${ownerFirst},\n\nI'm reaching out on behalf of Aventura Code Violations regarding the recent violation at ${c.property} (Case ${c.caseNum}).\n\nWe specialize in complex code violation remediation, with an in-house real estate litigation attorney as a business partner. We manage the entire process — permits, contractors, Special Magistrate hearings, and fine mitigation.\n\nYour current fine is $${c.balance.toLocaleString()}${c.dailyFine?` with $${c.dailyFine}/day accruing`:""} and your hearing is scheduled for ${c.hearing}. Acting now could significantly reduce your total exposure.\n\nI'd welcome a 15-minute call at no cost to you.${DISCLAIMER}${SIGNATURE}`
+      });
+    }
+    setEmailLoading(false);
+  };
+
+  const exportCSV = () => {
+    if(!plan?.steps) return;
+    const rows=[["Step","Action","Who","Contact","Document","Due Date","Notes"],
+      ...plan.steps.map(s=>[s.step,`"${s.action}"`,`"${s.who}"`,`"${s.contact}"`,`"${s.docNeeded}"`,`"${s.dueDate}"`,`"${s.notes}"`])];
+    const blob=new Blob([`Property,${planCase.property}\nCase,${planCase.caseNum}\nPriority,${plan.priority}\nEst Cost,${plan.estimatedCost}\n\n`+rows.map(r=>r.join(",")).join("\n")],{type:"text/csv"});
+    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`Plan_${planCase.deptViol||planCase.caseNum}.csv`;a.click();
+  };
+
+  const TABS=[{label:"My Properties",icon:"🏠"},{label:"City Feed",icon:"📡"},{label:"Owner Outreach",icon:"✉️"},{label:"Alerts & Contacts",icon:"🔔"}];
+
+  return (
+    <div style={S.page}>
+      {/* HEADER */}
+      <div style={S.header}>
+        <div style={{display:"flex",alignItems:"center",gap:"14px"}}>
+          <div style={{width:"44px",height:"44px",background:"linear-gradient(135deg,#6c5ce7,#a855f7)",borderRadius:"12px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"22px"}}>⚖️</div>
+          <div>
+            <div style={{fontSize:"11px",color:"#8892a4",letterSpacing:"2px",marginBottom:"2px"}}>VIOTRACK · MIAMI BEACH</div>
+            <div style={{fontSize:"22px",fontFamily:"'Playfair Display',Georgia,serif",fontWeight:"700",color:"#1a1a2e",lineHeight:"1.1"}}>Violation Intelligence Platform</div>
+          </div>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:"15px",color:"#4b5563",fontWeight:"600"}}>Aventura Code Violations</div>
+          <div style={{fontSize:"13px",color:"#16a34a",marginTop:"3px",fontWeight:"500"}}>● Live · Last sync {data?.lastUpdated?.split("T")[0] || "—"}</div>
+        </div>
+      </div>
+
+      {/* TABS */}
+      <div style={S.tabBar}>
+        {TABS.map((t,i)=>(
+          <button key={i} onClick={()=>setTab(i)} style={{background:"transparent",border:"none",borderBottom:tab===i?"3px solid #6c5ce7":"3px solid transparent",color:tab===i?"#6c5ce7":"#6b7280",padding:"16px 20px",fontSize:"15px",fontWeight:tab===i?"700":"500",cursor:"pointer",display:"flex",alignItems:"center",gap:"7px",transition:"all 0.15s"}}>
+            <span style={{fontSize:"17px"}}>{t.icon}</span>{t.label}
+            {i===1&&uncontacted>0&&<span style={{background:"#dc2626",color:"white",fontSize:"11px",fontWeight:"700",padding:"2px 8px",borderRadius:"20px"}}>{uncontacted}</span>}
+          </button>
+        ))}
+      </div>
+
+      <div style={S.content}>
+
+        {/* TAB 0 — MY PROPERTIES */}
+        {tab===0&&(
+          <div>
+            <div style={S.kpiGrid}>
+              {[
+                {label:"Open Cases",    value:myCases.filter(c=>c.status==="Open").length, color:"#dc2626", icon:"📂"},
+                {label:"Total Fines",   value:`$${totalFines.toLocaleString()}`,            color:"#d97706", icon:"💰"},
+                {label:"Daily Accruing",value:`$${dailyTotal.toLocaleString()}/day`,         color:"#dc2626", icon:"⚡"},
+                {label:"Cases Tracked", value:myCases.length,                               color:"#6c5ce7", icon:"📋"},
+              ].map((k,i)=>(
+                <div key={i} style={{...S.card,padding:"18px 20px"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    <div>
+                      <div style={S.label}>{k.label}</div>
+                      <div style={{fontSize:"24px",fontWeight:"700",color:k.color,marginTop:"4px"}}>{k.value}</div>
+                    </div>
+                    <span style={{fontSize:"24px"}}>{k.icon}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {myCases.length===0 && (
+              <div style={{...S.card,padding:"40px",textAlign:"center",color:"#8892a4",fontSize:"15px"}}>
+                No cases loaded yet. The scraper will populate this automatically each Monday.
+              </div>
+            )}
+
+            {myCases.map((c,idx)=>{
+              const ss=statusStyle(c.status);
+              return (
+                <div key={c.id||idx} style={{...S.card,padding:"20px 24px",marginBottom:"12px"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"10px",flexWrap:"wrap",gap:"8px"}}>
+                    <div>
+                      <div style={{fontSize:"16px",fontWeight:"700",color:"#6c5ce7"}}>{c.property}</div>
+                      <div style={{fontSize:"13px",color:"#8892a4",marginTop:"3px",fontFamily:"monospace"}}>{c.caseNum} · {c.deptViol}</div>
+                    </div>
+                    <div style={{display:"flex",gap:"10px",alignItems:"center",flexWrap:"wrap"}}>
+                      {c.dailyFine&&<span style={{background:"#fef2f2",color:"#dc2626",border:"1px solid #fecaca",padding:"4px 12px",borderRadius:"20px",fontSize:"13px",fontWeight:"700"}}>⚡ ${c.dailyFine}/day accruing</span>}
+                      <span style={{background:ss.bg,color:ss.text,border:`1px solid ${ss.border}`,padding:"4px 14px",borderRadius:"20px",fontSize:"13px",fontWeight:"600"}}>{c.status}</span>
+                    </div>
+                  </div>
+                  <div style={{fontSize:"15px",color:"#374151",fontWeight:"600",marginBottom:"6px"}}>{typeIcon(c.type)} {c.type}</div>
+                  <div style={{fontSize:"14px",color:"#6b7280",marginBottom:"14px",lineHeight:"1.5"}}>{c.description}</div>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"10px"}}>
+                    <div style={{display:"flex",gap:"24px",flexWrap:"wrap"}}>
+                      {c.balance>0&&<span style={{fontSize:"14px",color:"#6b7280"}}>Fine Balance: <strong style={{color:c.balance>50000?"#dc2626":"#d97706"}}>${c.balance.toLocaleString()}</strong></span>}
+                      {c.hearing&&c.hearing!=="—"&&<span style={{fontSize:"14px",color:"#6b7280"}}>Hearing: <strong style={{color:"#6c5ce7"}}>{c.hearing}</strong></span>}
+                    </div>
+                    <button onClick={()=>openPlan(c)} style={{...S.btnP,padding:"10px 22px",fontSize:"14px"}}>✦ Build Remediation Plan</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* TAB 1 — CITY FEED */}
+        {tab===1&&(
+          <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"20px",flexWrap:"wrap",gap:"10px"}}>
+              <div>
+                <div style={{fontSize:"20px",fontWeight:"700",color:"#1a1a2e",fontFamily:"'Playfair Display',Georgia,serif"}}>Miami Beach — Live Violation Feed</div>
+                <div style={{fontSize:"14px",color:"#8892a4",marginTop:"4px"}}>{cityFeed.length} open cases · Scraped weekly from SM portal</div>
+              </div>
+              <div style={{background:"#f0fdf4",color:"#16a34a",border:"1px solid #bbf7d0",padding:"8px 16px",borderRadius:"8px",fontSize:"13px",fontWeight:"600"}}>● Live Feed Active</div>
+            </div>
+
+            <div style={{display:"flex",gap:"8px",marginBottom:"18px",flexWrap:"wrap"}}>
+              {types.map(t=>(
+                <button key={t} onClick={()=>setTypeFilter(t)} style={{background:typeFilter===t?"linear-gradient(135deg,#6c5ce7,#a855f7)":"white",border:`1.5px solid ${typeFilter===t?"transparent":"#d1d9e6"}`,color:typeFilter===t?"white":"#6b7280",padding:"7px 16px",borderRadius:"20px",fontSize:"13px",fontWeight:"500",cursor:"pointer"}}>{t}</button>
+              ))}
+            </div>
+
+            {cityFeed.length===0 && (
+              <div style={{...S.card,padding:"48px",textAlign:"center",color:"#8892a4",fontSize:"15px",border:"2px dashed #e2e8f0"}}>
+                <div style={{fontSize:"36px",marginBottom:"12px"}}>📡</div>
+                City feed will populate automatically after the first scraper run.<br/>
+                <span style={{fontSize:"13px",color:"#b0b8c8"}}>GitHub Actions scrapes the SM agenda every Monday at 9am.</span>
+              </div>
+            )}
+
+            {filtered.map((c,idx)=>(
+              <div key={c.id||idx} style={{...S.card,padding:"18px 22px",marginBottom:"10px",borderLeft:c.contacted?"4px solid #16a34a":c.dailyFine?"4px solid #dc2626":"4px solid #e2e8f0"}}>
+                <div style={{display:"flex",gap:"16px",alignItems:"flex-start"}}>
+                  <span style={{fontSize:"28px",marginTop:"2px"}}>{typeIcon(c.type)}</span>
+                  <div style={{flex:1}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:"8px",marginBottom:"6px"}}>
+                      <div>
+                        <span style={{fontSize:"16px",color:"#1a1a2e",fontWeight:"700"}}>{c.property}</span>
+                        <span style={{fontSize:"12px",color:"#8892a4",fontFamily:"monospace",marginLeft:"12px"}}>{c.caseNum}</span>
+                      </div>
+                      {c.contacted
+                        ? <span style={{background:"#f0fdf4",color:"#16a34a",border:"1px solid #bbf7d0",padding:"4px 12px",borderRadius:"20px",fontSize:"12px",fontWeight:"700"}}>✓ Contacted</span>
+                        : c.dailyFine
+                          ? <span style={{background:"#fef2f2",color:"#dc2626",border:"1px solid #fecaca",padding:"4px 12px",borderRadius:"20px",fontSize:"12px",fontWeight:"700"}}>⚡ Daily Fine Running</span>
+                          : null
+                      }
+                    </div>
+                    <div style={{fontSize:"14px",color:"#4b5563",marginBottom:"4px"}}><strong>{c.type}</strong> — {c.description}</div>
+                    <div style={{fontSize:"13px",color:"#8892a4",marginBottom:"12px"}}>Owner: <strong style={{color:"#374151"}}>{c.owner}</strong> · Added {c.dateAdded}</div>
+                    <div style={{display:"flex",gap:"24px",alignItems:"center",flexWrap:"wrap"}}>
+                      <span style={{fontSize:"14px",color:"#6b7280"}}>Fine: <strong style={{color:c.balance>5000?"#dc2626":c.balance>0?"#d97706":"#6b7280"}}>{c.balance>0?`$${c.balance.toLocaleString()}`:"TBD"}</strong></span>
+                      {c.dailyFine&&<span style={{fontSize:"14px",color:"#dc2626",fontWeight:"700"}}>+${c.dailyFine}/day</span>}
+                      <span style={{fontSize:"14px",color:"#6b7280"}}>Hearing: <strong style={{color:"#6c5ce7"}}>{c.hearing}</strong></span>
+                      {!c.contacted&&<button onClick={()=>openOutreach(c)} style={{...S.btnP,padding:"9px 20px",fontSize:"14px",marginLeft:"auto"}}>✉ Draft Outreach Email</button>}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* TAB 2 — OWNER OUTREACH */}
+        {tab===2&&(
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"24px"}}>
+            <div>
+              <div style={{fontSize:"16px",fontWeight:"700",color:"#1a1a2e",marginBottom:"14px"}}>✉️ Draft Outreach Email</div>
+              {!outreachCase?(
+                <div style={{...S.card,padding:"60px 40px",textAlign:"center",border:"2px dashed #d1d9e6"}}>
+                  <div style={{fontSize:"40px",marginBottom:"14px"}}>✉️</div>
+                  <div style={{color:"#6b7280",fontSize:"15px",lineHeight:"1.6"}}>Go to <strong>City Feed</strong> and click<br/>"Draft Outreach Email" on any case</div>
+                </div>
+              ):(
+                <div style={S.card}>
+                  <div style={{padding:"14px 18px",background:"#f8f7ff",borderBottom:"1px solid #e2e8f0",borderRadius:"12px 12px 0 0"}}>
+                    <div style={{fontSize:"14px",color:"#6c5ce7",fontWeight:"600",marginBottom:"2px"}}>📍 {outreachCase.property} — {outreachCase.type}</div>
+                    <div style={{fontSize:"13px",color:"#8892a4"}}>Owner: {outreachCase.owner}</div>
+                  </div>
+                  {emailLoading?(
+                    <div style={{padding:"50px",textAlign:"center",color:"#6c5ce7",fontSize:"15px"}}>⚙️ AI is drafting your outreach email...</div>
+                  ):(
+                    <div style={{padding:"18px"}}>
+                      {["to","subject"].map(field=>(
+                        <div key={field} style={{marginBottom:"12px"}}>
+                          <label style={{...S.label,display:"block",marginBottom:"5px"}}>{field.toUpperCase()}</label>
+                          <input value={emailDraft[field]} onChange={e=>setEmailDraft(p=>({...p,[field]:e.target.value}))} placeholder={field==="to"?"owner@email.com":"Email subject"} style={S.input}/>
+                        </div>
+                      ))}
+                      <div style={{marginBottom:"14px"}}>
+                        <label style={{...S.label,display:"block",marginBottom:"5px"}}>BODY</label>
+                        <textarea value={emailDraft.body} onChange={e=>setEmailDraft(p=>({...p,body:e.target.value}))} rows={14} style={{...S.input,lineHeight:"1.65"}}/>
+                      </div>
+                      <div style={{display:"flex",gap:"10px"}}>
+                        <button onClick={()=>openOutreach(outreachCase)} style={{...S.btnG,flex:1,padding:"10px",fontSize:"14px"}}>↺ Regenerate</button>
+                        <button onClick={()=>window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(emailDraft.to)}&su=${encodeURIComponent(emailDraft.subject)}&body=${encodeURIComponent(emailDraft.body)}`,"_blank")} style={{...S.btnP,flex:2,padding:"10px",fontSize:"14px"}}>Open in Gmail →</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div>
+              <div style={{fontSize:"16px",fontWeight:"700",color:"#1a1a2e",marginBottom:"14px"}}>📋 Outreach Tracker</div>
+              <div style={S.card}>
+                <div style={{padding:"12px 18px",borderBottom:"1px solid #e2e8f0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{fontSize:"14px",color:"#6b7280"}}>{contacts.length} owners tracked</span>
+                  <span style={{fontSize:"13px",color:"#16a34a",fontWeight:"600"}}>{contacts.filter(c=>c.status==="Emailed").length} emailed</span>
+                </div>
+                {contacts.length===0 && <div style={{padding:"32px",textAlign:"center",color:"#8892a4",fontSize:"14px"}}>Outreach contacts will appear here as you draft emails.</div>}
+                {contacts.map((c,i)=>(
+                  <div key={c.id} style={{padding:"16px 18px",borderBottom:i<contacts.length-1?"1px solid #f1f5f9":"none"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:"6px"}}>
+                      <span style={{fontSize:"15px",color:"#1a1a2e",fontWeight:"600"}}>{c.name}</span>
+                      <span style={{fontSize:"13px",color:contactStatusColor(c.status),fontWeight:"700"}}>{c.status}</span>
+                    </div>
+                    <div style={{fontSize:"13px",color:"#8892a4",marginBottom:"4px"}}>📍 {c.property} · {c.caseNum}</div>
+                    <div style={{fontSize:"13px",color:c.email?"#6c5ce7":"#dc2626",fontWeight:"500"}}>{c.email||"⚠ No email on file"}</div>
+                    <div style={{fontSize:"12px",color:"#9ca3af",marginTop:"3px"}}>{c.date}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3 — ALERTS & CONTACTS */}
+        {tab===3&&(
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"24px",alignItems:"start"}}>
+            <div>
+              <div style={{fontSize:"16px",fontWeight:"700",color:"#1a1a2e",marginBottom:"14px"}}>🔔 Property Alert Settings</div>
+              <div style={{...S.card,padding:"20px"}}>
+                <div style={{fontSize:"14px",color:"#6b7280",marginBottom:"18px",lineHeight:"1.6"}}>When a new violation appears on a tracked address, an alert is automatically drafted and sent to the email below.</div>
+                {alerts.map(a=>(
+                  <div key={a.id} style={{padding:"14px 16px",background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:"10px",marginBottom:"10px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div>
+                      <div style={{fontSize:"15px",color:"#1a1a2e",fontWeight:"600"}}>{a.address}</div>
+                      <div style={{fontSize:"13px",color:"#8892a4",marginTop:"3px"}}>→ {a.email}</div>
+                      <div style={{fontSize:"12px",color:"#9ca3af",marginTop:"2px"}}>Last sync: {a.lastAlert}</div>
+                    </div>
+                    <div style={{display:"flex",gap:"10px",alignItems:"center"}}>
+                      <span style={{fontSize:"13px",color:a.active?"#16a34a":"#6b7280",fontWeight:"700"}}>{a.active?"● ACTIVE":"○ PAUSED"}</span>
+                      <button onClick={()=>setAlerts(al=>al.map(x=>x.id===a.id?{...x,active:!x.active}:x))} style={{...S.btnG,padding:"5px 14px",fontSize:"13px"}}>{a.active?"Pause":"Enable"}</button>
+                    </div>
+                  </div>
+                ))}
+                <div style={{marginTop:"18px",paddingTop:"18px",borderTop:"1px solid #e2e8f0"}}>
+                  <div style={{fontSize:"14px",color:"#6b7280",fontWeight:"600",marginBottom:"10px"}}>Add Property to Watch</div>
+                  <input value={newAddr} onChange={e=>setNewAddr(e.target.value)} placeholder="e.g. 123 OCEAN DR" style={{...S.input,marginBottom:"8px"}}/>
+                  <input value={newAlertEmail} onChange={e=>setNewAlertEmail(e.target.value)} placeholder="Alert email address" style={{...S.input,marginBottom:"12px"}}/>
+                  <button onClick={()=>{if(newAddr&&newAlertEmail){setAlerts(a=>[...a,{id:Date.now(),address:newAddr.toUpperCase(),email:newAlertEmail,active:true,lastAlert:"Never"}]);setNewAddr("");setNewAlertEmail("");}}} style={{...S.btnP,width:"100%",padding:"11px",fontSize:"15px"}}>+ Add Alert</button>
+                </div>
+              </div>
+            </div>
+            <div>
+              <div style={{fontSize:"16px",fontWeight:"700",color:"#1a1a2e",marginBottom:"14px"}}>📞 Miami Beach Dept Contacts</div>
+              <div style={S.card}>
+                {DEPT_CONTACTS.map((d,i)=>(
+                  <div key={i} style={{padding:"16px 18px",borderBottom:i<DEPT_CONTACTS.length-1?"1px solid #f1f5f9":"none"}}>
+                    <div style={{fontSize:"15px",color:"#1a1a2e",fontWeight:"700",marginBottom:"3px"}}>{d.dept}</div>
+                    <div style={{fontSize:"13px",color:"#8892a4",marginBottom:"8px"}}>{d.role}</div>
+                    <div style={{display:"flex",gap:"20px",flexWrap:"wrap"}}>
+                      <span style={{fontSize:"14px",color:"#0ea5e9",fontWeight:"500"}}>📞 {d.phone}</span>
+                      <a href={`mailto:${d.email}`} style={{fontSize:"14px",color:"#6c5ce7",fontWeight:"500"}}>✉ {d.email}</a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* REMEDIATION PLAN MODAL */}
+      {planCase&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:"20px"}}>
+          <div style={{background:"white",borderRadius:"16px",width:"100%",maxWidth:"740px",maxHeight:"90vh",overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 24px 60px rgba(0,0,0,0.2)"}}>
+            <div style={{padding:"20px 24px",borderBottom:"2px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"flex-start",background:"#f8f7ff"}}>
+              <div>
+                <div style={{fontSize:"11px",color:"#6c5ce7",letterSpacing:"2px",marginBottom:"4px"}}>REMEDIATION PLAN</div>
+                <div style={{color:"#1a1a2e",fontSize:"18px",fontWeight:"700"}}>{planCase.property}</div>
+                <div style={{color:"#6b7280",fontSize:"13px",marginTop:"2px"}}>{planCase.type} · {planCase.caseNum}</div>
+              </div>
+              <button onClick={()=>{setPlanCase(null);setPlan(null);}} style={{background:"#f1f5f9",border:"none",color:"#6b7280",width:"36px",height:"36px",borderRadius:"8px",cursor:"pointer",fontSize:"22px",lineHeight:"1"}}>×</button>
+            </div>
+            <div style={{flex:1,overflowY:"auto",padding:"24px"}}>
+              {planLoading&&<div style={{textAlign:"center",paddingTop:"60px",color:"#6c5ce7",fontSize:"16px"}}><div style={{fontSize:"36px",marginBottom:"14px"}}>⚙️</div>Analyzing violation · Building your compliance roadmap...</div>}
+              {plan&&(
+                <div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"14px",marginBottom:"20px"}}>
+                    {[{l:"Priority",v:plan.priority,c:priorityColor(plan.priority)},{l:"Estimated Cost",v:plan.estimatedCost,c:"#6c5ce7"},{l:"Timeline",v:plan.timeline,c:"#0ea5e9"}].map((k,i)=>(
+                      <div key={i} style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:"10px",padding:"14px 16px"}}>
+                        <div style={{fontSize:"11px",color:"#8892a4",letterSpacing:"0.5px",marginBottom:"5px"}}>{k.l.toUpperCase()}</div>
+                        <div style={{color:k.c,fontWeight:"700",fontSize:"16px"}}>{k.v}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {plan.warnings?.length>0&&<div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:"10px",padding:"14px 16px",marginBottom:"16px"}}><div style={{color:"#dc2626",fontSize:"13px",fontWeight:"700",marginBottom:"7px"}}>⚠ WARNINGS</div>{plan.warnings.map((w,i)=><div key={i} style={{color:"#7f1d1d",fontSize:"14px",marginBottom:"3px"}}>• {w}</div>)}</div>}
+                  {plan.quickWins?.length>0&&<div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:"10px",padding:"14px 16px",marginBottom:"16px"}}><div style={{color:"#16a34a",fontSize:"13px",fontWeight:"700",marginBottom:"7px"}}>⚡ QUICK WINS — Do These Today</div>{plan.quickWins.map((w,i)=><div key={i} style={{color:"#14532d",fontSize:"14px",marginBottom:"3px"}}>• {w}</div>)}</div>}
+                  <div style={{fontSize:"13px",color:"#8892a4",letterSpacing:"0.5px",marginBottom:"12px",fontWeight:"600"}}>STEP-BY-STEP ACTION PLAN</div>
+                  {plan.steps?.map((s,i)=>(
+                    <div key={i} style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:"10px",padding:"16px",marginBottom:"10px",display:"flex",gap:"14px"}}>
+                      <div style={{width:"32px",height:"32px",background:"linear-gradient(135deg,#6c5ce7,#a855f7)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",color:"white",fontSize:"14px",fontWeight:"700",flexShrink:0}}>{s.step}</div>
+                      <div style={{flex:1}}>
+                        <div style={{color:"#1a1a2e",fontSize:"15px",fontWeight:"600",marginBottom:"8px"}}>{s.action}</div>
+                        <div style={{display:"flex",flexWrap:"wrap",gap:"16px",marginBottom:"4px"}}>
+                          {s.who&&<span style={{fontSize:"13px",color:"#6b7280"}}>👤 <span style={{color:"#374151",fontWeight:"500"}}>{s.who}</span></span>}
+                          {s.contact&&s.contact!=="TBD"&&s.contact!=="—"&&<span style={{fontSize:"13px",color:"#6b7280"}}>📞 <span style={{color:"#0ea5e9",fontWeight:"500"}}>{s.contact}</span></span>}
+                          {s.docNeeded&&<span style={{fontSize:"13px",color:"#6b7280"}}>📄 <span style={{color:"#374151"}}>{s.docNeeded}</span></span>}
+                          {s.dueDate&&<span style={{fontSize:"13px",color:"#6b7280"}}>📅 <span style={{color:"#6c5ce7",fontWeight:"600"}}>{s.dueDate}</span></span>}
+                        </div>
+                        {s.notes&&<div style={{fontSize:"13px",color:"#9ca3af",fontStyle:"italic",marginTop:"4px"}}>{s.notes}</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {plan&&(
+              <div style={{padding:"16px 24px",borderTop:"2px solid #f1f5f9",display:"flex",justifyContent:"space-between",background:"#fafbfc"}}>
+                <button onClick={()=>openPlan(planCase)} style={{...S.btnG,padding:"10px 20px",fontSize:"14px"}}>↺ Regenerate</button>
+                <button onClick={exportCSV} style={{...S.btnP,padding:"10px 24px",fontSize:"14px"}}>⬇ Export to CSV</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
