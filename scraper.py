@@ -1,19 +1,19 @@
+""" VioTrack Scraper - Miami Beach SM Portal
+Uses requests for address lookups, Playwright for JS-rendered city feed agendas.
 """
-VioTrack Scraper - Rewritten to match actual Miami Beach SM portal structure
-"""
-
 import json
 import re
 import time
 import traceback
-from datetime import datetime
+from datetime import datetime, date
 from pathlib import Path
+
 import requests
 from bs4 import BeautifulSoup
 
-# ── Config ───────────────────────────────────────────────────────────────────
+# ── Config ──────────────────────────────────────────────────────────────────
 ADDRESS_INQUIRY_URL = "https://apps.miamibeachfl.gov/SMAddressInquire/"
-AGENDA_LIST_URL     = "https://apps.miamibeachfl.gov/energovagenda/Public/"
+AGENDA_LIST_URL    = "https://apps.miamibeachfl.gov/energovagenda/Public/"
 DATA_FILE = Path("data/violations.json")
 
 WATCH_ADDRESSES = [
@@ -32,41 +32,69 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
 }
 
-# Only include cases with these statuses (filter out Closed/Dismissed)
-OPEN_STATUSES = {"open", "active", "pending", "scheduled", "new"}
+# Only include cases with these statuses
+OPEN_STATUSES = {"open", "active", "pending", "scheduled", "new", "appealed", "continued"}
+
 SESSION = requests.Session()
 SESSION.headers.update(HEADERS)
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
-
-def parse_address(raw: str):
+def parse_address(raw):
     parts = raw.strip().upper().split()
-    if not parts: return None, None
+    if not parts:
+        return None, None
     number = parts[0]
     name_parts = [p for p in parts[1:] if p not in STREET_TYPES]
     return number, " ".join(name_parts)
 
-def parse_dollar(text: str) -> int:
+def parse_dollar(text):
     cleaned = re.sub(r"[^\d.]", "", text or "")
-    try: return int(float(cleaned))
-    except: return 0
+    try:
+        return int(float(cleaned))
+    except:
+        return 0
 
-def classify_type(text: str) -> str:
+def classify_type(text):
     t = text.upper()
-    if "ELECTRICAL" in t or "BVE" in t:  return "Building – Electrical"
-    if "PLUMBING"   in t or "BVP" in t:  return "Building – Plumbing"
-    if "MECHANICAL" in t or "BVM" in t:  return "Building – Mechanical"
-    if "UNSAFE"     in t:                return "Unsafe Structures"
-    if "RECERT"     in t or "EBR" in t:  return "40-Yr Recertification"
-    if "COMBO"      in t or "BVC" in t:  return "Building – Combo"
-    if "MAINTENANCE" in t:               return "Property Maintenance"
-    if "CODE"       in t:                return "City Code Violation"
-    if "PARKING"    in t or "PV" in t:   return "Parking Violation"
-    if "FIRE"       in t:                return "Fire Violation"
+    if "ELECTRICAL" in t or "BVE" in t: return "Building – Electrical"
+    if "PLUMBING"   in t or "BVP" in t: return "Building – Plumbing"
+    if "MECHANICAL" in t or "BVM" in t: return "Building – Mechanical"
+    if "UNSAFE"     in t:               return "Unsafe Structures"
+    if "RECERT"     in t or "EBR" in t: return "40-Yr Recertification"
+    if "COMBO"      in t or "BVC" in t: return "Building – Combo"
+    if "MAINTENANCE" in t:              return "Property Maintenance"
+    if "CODE"       in t:               return "City Code Violation"
+    if "PARKING"    in t or "PV" in t:  return "Parking Violation"
+    if "FIRE"       in t:               return "Fire Violation"
+    if "ROW"        in t or "RIGHT" in t: return "Right-of-Way"
+    if "NOISE"      in t:               return "Noise Violation"
     return text.strip() or "Violation"
 
+def parse_hearing_date(text):
+    """Parse date strings like '3/19/2026' or 'Thursday, March 19, 2026'."""
+    text = text.strip()
+    for fmt in ("%m/%d/%Y", "%B %d, %Y", "%b %d, %Y"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except:
+            pass
+    m = re.search(r"(\w+ \d+, \d{4})", text)
+    if m:
+        try:
+            return datetime.strptime(m.group(1), "%B %d, %Y").date()
+        except:
+            pass
+    return None
+
+def is_future_or_today(date_text):
+    d = parse_hearing_date(date_text)
+    if d is None:
+        return False
+    return d >= date.today()
+
 def load_data():
-    if DATA_FILE.exists(): return json.loads(DATA_FILE.read_text())
+    if DATA_FILE.exists():
+        return json.loads(DATA_FILE.read_text())
     return {"myProperties": [], "cityFeed": [], "watchAddresses": WATCH_ADDRESSES, "lastUpdated": None}
 
 def save_data(data):
@@ -74,10 +102,8 @@ def save_data(data):
     DATA_FILE.write_text(json.dumps(data, indent=2))
     print(f"Saved {DATA_FILE}")
 
-# ── Part 1: Address inquiry ───────────────────────────────────────────────────
-
-def scrape_address(raw_address: str) -> list:
-    """POST to address inquiry form, parse HTML results table."""
+# ── Part 1: Address inquiry (requests) ───────────────────────────────────────
+def scrape_address(raw_address):
     street_num, street_name = parse_address(raw_address)
     if not street_num or not street_name:
         print(f"  Could not parse: {raw_address}")
@@ -92,222 +118,273 @@ def scrape_address(raw_address: str) -> list:
         payload = {
             "__RequestVerificationToken": token,
             "StreetNbr":    street_num,
-            "StreeName":    street_name,   # Portal has typo: StreeName not StreetName
-            "ViolationType": "%",          # % = All Violations
+            "StreeName":    street_name,
+            "ViolationType": "%",
         }
         resp2 = SESSION.post(ADDRESS_INQUIRY_URL, data=payload, timeout=15)
         resp2.raise_for_status()
         soup2 = BeautifulSoup(resp2.text, "html.parser")
-        cases = []
         table = soup2.find("table")
         if not table:
-            print(f"    No results table for {raw_address}")
+            print(f"  No results for {raw_address}")
             return []
-        rows = table.find_all("tr")[1:]  # skip header
-        for row in rows:
+        cases = []
+        for row in table.find_all("tr")[1:]:
             cells = [td.get_text(strip=True) for td in row.find_all("td")]
-            if len(cells) < 5: continue
-            # Columns: 0=hearing, 1=caseNum, 2=violation#, 3=type, 4=status, 5=name, 6=closed, 7=balance
+            if len(cells) < 5:
+                continue
+            status = cells[4] if len(cells) > 4 else ""
+            if status.lower() not in OPEN_STATUSES:
+                continue
             case_num  = cells[1] if len(cells) > 1 else "—"
             dept_viol = cells[2] if len(cells) > 2 else "—"
             viol_type = cells[3] if len(cells) > 3 else "—"
-            status    = cells[4] if len(cells) > 4 else "—"
             owner     = cells[5] if len(cells) > 5 else "—"
             balance   = parse_dollar(cells[7]) if len(cells) > 7 else 0
-            hearing   = cells[0].split()[0]  if cells[0] else "—"
-            # Skip closed/dismissed cases
-            if status.lower() not in OPEN_STATUSES:
-                continue
+            hearing   = cells[0].split()[0] if cells[0] else "—"
             cases.append({
-                "id":         abs(hash(case_num)) % 999999,
-                "property":   raw_address,
-                "caseNum":    case_num,
-                "deptViol":   dept_viol,
-                "type":       classify_type(viol_type),
-                "status":     status,
-                "hearing":    hearing,
-                "balance":    balance,
-                "dailyFine":  None,
-                "owner":      owner,
+                "id":          abs(hash(case_num)) % 999999,
+                "property":    raw_address,
+                "caseNum":     case_num,
+                "deptViol":    dept_viol,
+                "type":        classify_type(viol_type),
+                "status":      status,
+                "hearing":     hearing,
+                "balance":     balance,
+                "dailyFine":   None,
+                "owner":       owner,
                 "description": viol_type,
-                "code":       "",
+                "code":        "",
             })
-        print(f"    Found {len(cases)} cases for {raw_address}")
+        print(f"    Found {len(cases)} open cases for {raw_address}")
         return cases
     except Exception as e:
-        print(f"    Error scraping {raw_address}: {e}")
+        print(f"  Error scraping {raw_address}: {e}")
         traceback.print_exc()
         return []
 
-# ── Part 2: City Feed via Agenda Schedules ────────────────────────────────────
-
-def get_hidden_fields(soup) -> dict:
-    fields = {}
-    for inp in soup.find_all("input", {"type": "hidden"}):
-        name = inp.get("name")
-        if name: fields[name] = inp.get("value", "")
-    return fields
-
-
-def scrape_city_feed() -> list:
+# ── Part 2: City Feed via Playwright ─────────────────────────────────────────
+def scrape_city_feed():
     """
-    1. GET agenda listing, capture session + hidden fields.
-    2. For each recent BUILDING/CODE hearing, POST the doPostBack selection.
-    3. The postback redirects to AgendaSchedules - GET that URL directly.
-    4. Parse the SSRS report HTML embedded in the response.
+    Use Playwright to:
+    1. Load the agenda listing page
+    2. Find all upcoming hearings (today or future)
+    3. For each, click View Agenda, wait for SSRS report to render
+    4. Extract all cases from the rendered DOM across all pages
+    5. Filter out cases with unit numbers (unit-specific violations)
     """
-    print("\nScraping city agenda feed...")
-    cases = []
+    print("\nScraping city agenda feed with Playwright...")
     try:
-        resp = SESSION.get(AGENDA_LIST_URL, timeout=15)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-        hidden = get_hidden_fields(soup)
+        from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+    except ImportError:
+        print("  Playwright not installed - skipping city feed")
+        return []
 
-        grid = soup.find("table", id=re.compile(r"GridView", re.I))
-        if not grid:
-            grid = soup.find("table")
-        if not grid:
-            print("  Could not find agenda table")
-            return []
+    cases = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.set_default_timeout(30000)
 
-        rows = grid.find_all("tr")[1:]
-        print(f"  Found {len(rows)} hearing rows")
+        try:
+            # Load agenda list
+            page.goto(AGENDA_LIST_URL, wait_until="networkidle")
+            print("  Loaded agenda listing")
 
-        processed = 0
-        for i, row in enumerate(rows[:15]):
-            cells = row.find_all("td")
-            if len(cells) < 3: continue
-            hearing_date = cells[1].get_text(strip=True) if len(cells) > 1 else ""
-            description  = cells[3].get_text(strip=True) if len(cells) > 3 else ""
-            if not any(k in description.upper() for k in ["BUILDING", "BLDG", "CODE", "UNSAFE"]):
-                continue
-            print(f"  Processing row {i}: {hearing_date} - {description}")
-            try:
-                hcases = fetch_agenda_schedule(hidden, i, hearing_date)
-                if hcases:
-                    cases.extend(hcases)
-                    processed += 1
-                time.sleep(2)
-            except Exception as e:
-                print(f"    Error on row {i}: {e}")
-                traceback.print_exc()
-            if processed >= 4:
-                break
-    except Exception as e:
-        print(f"  Error: {e}")
-        traceback.print_exc()
+            # Find all View Agenda links and their dates
+            rows = page.query_selector_all("table tr")
+            upcoming = []
+            for row in rows[1:]:  # skip header
+                cells = row.query_selector_all("td")
+                if len(cells) < 4:
+                    continue
+                date_text = cells[1].inner_text().strip() if len(cells) > 1 else ""
+                desc_text = cells[3].inner_text().strip() if len(cells) > 3 else ""
+                link = cells[0].query_selector("a")
+                if link and is_future_or_today(date_text):
+                    upcoming.append({
+                        "date": date_text,
+                        "desc": desc_text,
+                        "link": link,
+                    })
+
+            print(f"  Found {len(upcoming)} upcoming hearing(s)")
+
+            for hearing in upcoming:
+                print(f"  Processing: {hearing['date']} - {hearing['desc']}")
+                try:
+                    hearing["link"].click()
+                    # Wait for SSRS report to finish loading
+                    page.wait_for_selector("text=Special Master Case#", timeout=20000)
+                    time.sleep(2)  # let report fully render
+
+                    hearing_cases = extract_cases_from_ssrs(page, hearing["date"])
+                    print(f"    Extracted {len(hearing_cases)} cases")
+                    cases.extend(hearing_cases)
+
+                    # Go back to the listing
+                    page.goto(AGENDA_LIST_URL, wait_until="networkidle")
+                    time.sleep(1)
+
+                except PWTimeout:
+                    print(f"    Timeout waiting for report on {hearing['date']} - skipping")
+                except Exception as e:
+                    print(f"    Error on {hearing['date']}: {e}")
+
+        finally:
+            browser.close()
+
     print(f"  City feed total: {len(cases)} cases")
     return cases
 
-
-def fetch_agenda_schedule(hidden_fields: dict, row_idx: int, hearing_date: str) -> list:
+def extract_cases_from_ssrs(page, hearing_date):
     """
-    Post the row selection, then GET /AgendaSchedules to get the rendered report.
-    The session cookie carries the state, so after a successful POST the
-    GET to AgendaSchedules returns the report for that row.
+    Extract all cases from the SSRS report rendered in the browser.
+    The report may span multiple pages - iterate through all pages.
+    Only include cases where the property address has no unit number.
     """
-    payload = dict(hidden_fields)
-    payload["__EVENTTARGET"]   = "ctl00$MainContent$GridViewAgendas"
-    payload["__EVENTARGUMENT"] = "Select$" + str(row_idx)
+    from playwright.sync_api import TimeoutError as PWTimeout
+    all_cases = []
+    page_num = 1
 
-    # POST to select the row (sets session state on server)
-    resp = SESSION.post(AGENDA_LIST_URL, data=payload, timeout=25)
-    resp.raise_for_status()
-
-    # The response is an ASP.NET UpdatePanel partial-page response.
-    # Check if it redirected or if we need to GET AgendaSchedules separately.
-    final_url = resp.url
-    print(f"    POST response URL: {final_url}, size: {len(resp.text)}")
-
-    # If the POST stayed on the list page (UpdatePanel response), GET AgendaSchedules
-    if "AgendaSchedules" not in final_url:
-        resp2 = SESSION.get(
-            "https://apps.miamibeachfl.gov/energovagenda/Public/AgendaSchedules",
-            timeout=25
-        )
-        resp2.raise_for_status()
-        html = resp2.text
-        print(f"    GET AgendaSchedules: {len(html)} chars")
-    else:
-        html = resp.text
-
-    return parse_agenda_html(html, hearing_date)
-
-
-def parse_agenda_html(html: str, hearing_date: str) -> list:
-    """
-    Parse SSRS report HTML. The report data is in span/table elements
-    inside the ReportArea div. We convert to text and split on case boundaries.
-    """
-    soup = BeautifulSoup(html, "html.parser")
-
-    # Try to find the report area specifically
-    report_area = soup.find(id=re.compile(r"ReportArea|ReportControl|VisibleReport", re.I))
-    if report_area:
-        text = report_area.get_text(" ")
-    else:
-        text = soup.get_text(" ")
-
-    text = re.sub(r"\s+", " ", text)
-
-    # Debug: show first 500 chars of what we have
-    print(f"    Text preview: {text[:200]!r}")
-
-    blocks = re.split(r"(?=Special M(?:aster|agistrate) Case#)", text, flags=re.I)
-    cases = []
-    for block in blocks[1:]:
+    while True:
+        # Get current page text
         try:
-            c = extract_case_from_block(block, hearing_date)
-            if c: cases.append(c)
-        except Exception:
-            pass
-    print(f"    Parsed {len(cases)} cases from agenda")
+            content = page.inner_text("body")
+        except:
+            break
+
+        # Parse cases from this page
+        page_cases = parse_ssrs_text(content, hearing_date)
+        all_cases.extend(page_cases)
+
+        # Check if there's a next page button that's enabled
+        try:
+            next_btn = page.query_selector("input[title='Next Page'], a[title='Next Page']")
+            if next_btn:
+                is_disabled = next_btn.get_attribute("disabled")
+                if is_disabled:
+                    break
+                next_btn.click()
+                page.wait_for_timeout(2000)
+                page_num += 1
+            else:
+                # Try clicking the > navigation button in SSRS toolbar
+                btns = page.query_selector_all("img[src*='NextPage']")
+                active_next = None
+                for btn in btns:
+                    if "Disabled" not in (btn.get_attribute("src") or ""):
+                        active_next = btn
+                        break
+                if active_next:
+                    active_next.click()
+                    page.wait_for_timeout(2000)
+                    page_num += 1
+                else:
+                    break
+        except PWTimeout:
+            break
+        except:
+            break
+
+        if page_num > 30:  # safety cap
+            break
+
+    return all_cases
+
+def parse_ssrs_text(text, hearing_date):
+    """
+    Parse the inner text of the SSRS report page.
+    Split on 'Special Master Case#' boundaries.
+    Filter out cases with unit numbers in the address.
+    """
+    # Split into case blocks
+    blocks = re.split(r"(?=Special Master Case#\s*\n)", text, flags=re.I)
+    cases = []
+    for block in blocks:
+        if "Special Master Case#" not in block:
+            continue
+        c = extract_case_from_block(block, hearing_date)
+        if c:
+            cases.append(c)
     return cases
 
+def extract_case_from_block(block, hearing_date):
+    lines = [l.strip() for l in block.split("\n") if l.strip()]
 
-def extract_case_from_block(block: str, hearing_date: str) -> dict:
-    def find(pattern, default="\u2014"):
-        m = re.search(pattern, block, re.I | re.DOTALL)
-        return m.group(1).strip() if m else default
+    def next_after(keyword):
+        for i, line in enumerate(lines):
+            if keyword.lower() in line.lower():
+                for j in range(i+1, min(i+4, len(lines))):
+                    if lines[j] and not any(k in lines[j].lower() for k in
+                       ["special master", "department", "property", "description",
+                        "inspector", "status", "violation type", "code", "comments"]):
+                        return lines[j]
+        return "—"
 
-    case_num  = find(r"Case#\s*(\S+)")
-    dept_viol = find(r"Department Violation\s*#?\s*(\S+)")
-    address   = find(r"Property Address:\s*(.+?)(?:\s+(?:Department|Owner|\d+\s+\d+:\d+))")
-    owner     = find(r"(?:c/o|Owner|Name):\s*(.+?)(?:\s+(?:AREA|Description|Status|Inspector))", "Unknown")
-    desc      = find(r"Description:\s*(.+?)(?:\s+(?:Inspector|Status|Fine|Code|Violation Type))", "")
-    status    = find(r"Status:\s*(\w+)")
-    fine_raw  = find(r"\$([\d,]+(?:\.\d{2})?)", "0")
-    vtype_raw = find(r"Violation Type:\s*(.+?)(?:\s+Code)", "")
+    # Case number
+    case_num = next_after("Special Master Case#")
+    if case_num == "—" or not re.match(r"SM[A-Z]d{4}-d+", case_num, re.I):
+        return None
 
-    if case_num == "\u2014": return None
+    # Property address - find it and check for unit numbers
+    address = next_after("Property Address:")
+    if address == "—":
+        address = "MIAMI BEACH"
+    else:
+        # Filter out addresses with unit numbers
+        # Unit patterns: "Unit:", "Apt", "#", "Ste", or address starting with 0
+        if re.search(r"\bUnit\b|\bApt\b|\bSte\b|\bSuite\b|\b#\d", address, re.I):
+            return None
+        if address.startswith("0 ") or address == "0":
+            return None
+
+    dept_viol  = next_after("Department Violation #")
+    owner      = next_after("miller") or next_after("c/o") or "—"
+    desc       = next_after("Description:")
+    status_raw = ""
+    for line in lines:
+        if line.lower().startswith("status:"):
+            status_raw = line.split(":", 1)[1].strip()
+            break
+
+    # Fine amount
+    fine = 0
+    for line in lines:
+        m = re.search(r"\$(\d[\d,]*)", line)
+        if m:
+            fine = parse_dollar(m.group(1))
+            break
+
+    viol_type = next_after("Violation Type:")
 
     return {
-        "id":         abs(hash(case_num)) % 999999,
-        "property":   address.upper().strip() if address != "\u2014" else "MIAMI BEACH",
-        "caseNum":    case_num,
-        "deptViol":   dept_viol,
-        "type":       classify_type(dept_viol + " " + vtype_raw),
-        "status":     status,
-        "hearing":    hearing_date,
-        "balance":    parse_dollar(fine_raw),
-        "dailyFine":  None,
-        "owner":      owner.strip(),
-        "description": desc.strip()[:200],
-        "dateAdded":  datetime.utcnow().strftime("%Y-%m-%d"),
-        "contacted":  False,
+        "id":          abs(hash(case_num)) % 999999,
+        "property":    address.upper().strip(),
+        "caseNum":     case_num,
+        "deptViol":    dept_viol,
+        "type":        classify_type(dept_viol + " " + viol_type),
+        "status":      status_raw or "Scheduled",
+        "hearing":     hearing_date,
+        "balance":     fine,
+        "dailyFine":   None,
+        "owner":       owner.strip(),
+        "description": (desc.strip()[:200] if desc != "—" else ""),
+        "dateAdded":   datetime.utcnow().strftime("%Y-%m-%d"),
+        "contacted":   False,
+        "source":      "cityFeed",
     }
 
-
-# ── Main ──────────────────────────────────────────────────────────────────────
-
+# ── Main ─────────────────────────────────────────────────────────────────────
 def main():
     print("=" * 60)
     print("VioTrack Scraper — Miami Beach SM Portal")
     print(f"Started: {datetime.utcnow().isoformat()}Z")
     print("=" * 60)
+
     data = load_data()
 
+    # Part 1: Watched addresses
     print("\n[1/2] Scraping watched addresses...")
     all_my_cases = []
     for addr in data.get("watchAddresses", WATCH_ADDRESSES):
@@ -319,18 +396,18 @@ def main():
         for nc in all_my_cases:
             cn = nc["caseNum"]
             if cn in existing:
-                existing[cn]["status"]  = nc.get("status",  existing[cn]["status"])
-                existing[cn]["balance"] = nc.get("balance", existing[cn]["balance"])
-                existing[cn]["hearing"] = nc.get("hearing", existing[cn]["hearing"])
+                existing[cn].update({"status": nc["status"], "balance": nc["balance"], "hearing": nc["hearing"]})
             else:
                 existing[cn] = nc
         data["myProperties"] = list(existing.values())
-        print(f"  My Properties: {len(data['myProperties'])} total cases")
+        print(f"  My Properties: {len(data['myProperties'])} total open cases")
     else:
-        print("  No new cases — keeping existing data")
+        print("  No cases found — keeping existing data")
 
+    # Part 2: City feed
     print("\n[2/2] Scraping city agenda feed...")
     city_cases = scrape_city_feed()
+
     if city_cases:
         existing_city = {c["caseNum"]: c for c in data.get("cityFeed", [])}
         for nc in city_cases:
@@ -338,16 +415,14 @@ def main():
             if cn not in existing_city:
                 existing_city[cn] = nc
             else:
-                existing_city[cn]["balance"] = nc.get("balance", existing_city[cn]["balance"])
-                existing_city[cn]["status"]  = nc.get("status",  existing_city[cn]["status"])
+                existing_city[cn].update({"balance": nc["balance"], "status": nc["status"], "hearing": nc["hearing"]})
         data["cityFeed"] = list(existing_city.values())
         print(f"  City Feed: {len(data['cityFeed'])} total cases")
     else:
-        print("  No city cases — keeping existing data")
+        print("  No city cases found — keeping existing data")
 
     save_data(data)
     print(f"\nDone. Updated {DATA_FILE}")
-
 
 if __name__ == "__main__":
     main()
