@@ -31,6 +31,9 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; VioTrack/1.0)",
     "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
 }
+
+# Only include cases with these statuses (filter out Closed/Dismissed)
+OPEN_STATUSES = {"open", "active", "pending", "scheduled", "new"}
 SESSION = requests.Session()
 SESSION.headers.update(HEADERS)
 
@@ -112,6 +115,9 @@ def scrape_address(raw_address: str) -> list:
             owner     = cells[5] if len(cells) > 5 else "—"
             balance   = parse_dollar(cells[7]) if len(cells) > 7 else 0
             hearing   = cells[0].split()[0]  if cells[0] else "—"
+            # Skip closed/dismissed cases
+            if status.lower() not in OPEN_STATUSES:
+                continue
             cases.append({
                 "id":         abs(hash(case_num)) % 999999,
                 "property":   raw_address,
