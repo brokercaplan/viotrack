@@ -222,37 +222,62 @@ def scrape_city_feed():
     return cases
 
 def extract_all_report_pages(page, hearing_date):
-    """Extract cases from all pages of the SSRS report."""
+    """Extract cases from all pages of the SSRS report.
+    
+    The SSRS toolbar uses input[type=image] buttons with title='Next Page'.
+    Navigate by typing into the CurrentPage input for reliability.
+    """
     from playwright.sync_api import TimeoutError as PWTimeout
+    import re as _re
     all_cases = []
     page_num = 1
 
-    while True:
-        content = page.inner_text("body")
-        page_cases = parse_ssrs_page(content, hearing_date)
-        all_cases.extend(page_cases)
-        print(f"      Page {page_num}: {len(page_cases)} cases")
+    # Get total pages first
+    try:
+        body_text = page.inner_text("body")
+        m = _re.search(r'(\d+)\s+of\s+(\d+)', body_text)
+        total_pages = int(m.group(2)) if m else 99
+    except:
+        total_pages = 99
 
-        # Try to click Next Page in the SSRS toolbar
-        # Active next page button has src NOT containing "Disabled"
-        try:
-            next_imgs = page.query_selector_all("img[src*='NextPage']")
-            active_next = None
-            for img in next_imgs:
-                src = img.get_attribute("src") or ""
-                if "Disabled" not in src:
-                    active_next = img
-                    break
-            if active_next:
-                active_next.click()
-                page.wait_for_timeout(2500)
-                page_num += 1
-            else:
-                break
-        except:
+    print(f"      Report has {total_pages} pages")
+
+    while page_num <= total_pages:
+        body_text = page.inner_text("body")
+        page_cases = parse_ssrs_page(body_text, hearing_date)
+        all_cases.extend(page_cases)
+        print(f"      Page {page_num}/{total_pages}: {len(page_cases)} cases")
+
+        if page_num >= total_pages:
             break
 
-        if page_num > 50:
+        # Navigate to next page via CurrentPage input (most reliable)
+        try:
+            current_input = page.query_selector("input[title='Current Page']")
+            if current_input:
+                current_input.triple_click()
+                current_input.type(str(page_num + 1))
+                current_input.press("Return")
+                page.wait_for_timeout(3000)
+                page_num += 1
+            else:
+                # Fallback: click enabled Next Page input button
+                next_btns = page.query_selector_all("input[title='Next Page']")
+                clicked = False
+                for btn in next_btns:
+                    if not btn.get_attribute("disabled"):
+                        btn.click()
+                        page.wait_for_timeout(3000)
+                        page_num += 1
+                        clicked = True
+                        break
+                if not clicked:
+                    break
+        except Exception as e:
+            print(f"      Pagination error: {e}")
+            break
+
+        if page_num > 100:
             break
 
     return all_cases
