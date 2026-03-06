@@ -2,7 +2,7 @@ name: Scrape Miami Beach Violations
 
 on:
   schedule:
-    - cron: '0 9 * * 1'
+    - cron: '0 8 * * *'  # Daily at 8am UTC (4am ET)
   workflow_dispatch:
 
 jobs:
@@ -20,11 +20,17 @@ jobs:
         with:
           python-version: '3.11'
 
-      - run: pip install requests beautifulsoup4
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 playwright
 
-      - run: python scraper.py
+      - name: Install Playwright browsers
+        run: playwright install chromium --with-deps
 
-      - run: |
+      - name: Run scraper
+        run: python scraper.py
+
+      - name: Commit updated data
+        run: |
           git config user.name "VioTrack Bot"
           git config user.email "actions@github.com"
           git add data/violations.json
