@@ -90,7 +90,7 @@ def scrape_address(raw_address: str) -> list:
             "__EVENTVALIDATION":    val("__EVENTVALIDATION"),
             "ctl00$MainContent$txtStreetNumber": street_num,
             "ctl00$MainContent$txtStreetName":   street_name,
-            "ctl00$MainContent$ddlViolationType": "All Violations",
+            "ctl00$MainContent$ddlViolationType": ""  # Empty = All violations,
             "ctl00$MainContent$btnSearch": "Search",
         }
 
@@ -147,54 +147,72 @@ def parse_dollar(text: str) -> int:
 def scrape_city_feed() -> list:
     """
     Pull upcoming agenda hearing dates and parse PDFs for all cases.
-    Returns list of violation dicts for the City Feed tab.
+    Uses Playwright for JS-rendered pages. Falls back to requests if unavailable.
     """
     print("\nScraping city agenda feed...")
     cases = []
+    pdf_links = []
 
+    # Try Playwright first (handles JS-rendered pages)
     try:
-        resp = SESSION.get(AGENDA_URL, timeout=15)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        # Find PDF links in the agenda page
-        pdf_links = []
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            if "docmgmt" in href or ".pdf" in href.lower() or "edoc" in href.lower():
-                if not href.startswith("http"):
-                    href = "https://apps.miamibeachfl.gov" + href
-                pdf_links.append(href)
-
-        # Also look for agenda date links that lead to PDFs
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            if "agenda" in href.lower() and href not in pdf_links:
-                if not href.startswith("http"):
-                    href = "https://apps.miamibeachfl.gov" + href
-                pdf_links.append(href)
-
-        print(f"  Found {len(pdf_links)} potential agenda PDF links")
-
-        # Parse the most recent 2 PDFs only
-        parsed = 0
-        for link in pdf_links[:4]:
-            if parsed >= 2:
-                break
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.set_extra_http_headers(HEADERS)
             try:
-                pdf_cases = parse_agenda_pdf(link)
-                if pdf_cases:
-                    cases.extend(pdf_cases)
-                    parsed += 1
-                time.sleep(1)
-            except Exception as e:
-                print(f"  ✗ Error parsing PDF {link}: {e}")
-
+                page.goto(AGENDA_URL, timeout=30000, wait_until="networkidle")
+                page.wait_for_timeout(3000)
+                html = page.content()
+                soup = BeautifulSoup(html, "html.parser")
+                for a in soup.find_all("a", href=True):
+                    href = a["href"]
+                    if any(x in href.lower() for x in ["docmgmt", ".pdf", "edoc", "agenda"]):
+                        if not href.startswith("http"):
+                            href = "https://apps.miamibeachfl.gov" + href
+                        if href not in pdf_links:
+                            pdf_links.append(href)
+                print(f"  Playwright found {len(pdf_links)} potential links")
+            finally:
+                browser.close()
+    except ImportError:
+        print("  Playwright not available, falling back to requests")
     except Exception as e:
-        print(f"  ✗ Error fetching agenda page: {e}")
-        traceback.print_exc()
+        print(f"  Playwright error: {e}, falling back to requests")
 
-    print(f"  ✓ City feed: {len(cases)} cases found")
+    # Fallback: plain requests (for non-JS pages)
+    if not pdf_links:
+        try:
+            resp = SESSION.get(AGENDA_URL, timeout=15)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                if any(x in href.lower() for x in ["docmgmt", ".pdf", "edoc"]):
+                    if not href.startswith("http"):
+                        href = "https://apps.miamibeachfl.gov" + href
+                    if href not in pdf_links:
+                        pdf_links.append(href)
+            print(f"  requests found {len(pdf_links)} potential PDF links")
+        except Exception as e:
+            print(f"  Error fetching agenda page: {e}")
+            traceback.print_exc()
+
+    print(f"  Found {len(pdf_links)} total PDF link candidates")
+    parsed = 0
+    for link in pdf_links[:6]:
+        if parsed >= 2:
+            break
+        try:
+            pdf_cases = parse_agenda_pdf(link)
+            if pdf_cases:
+                cases.extend(pdf_cases)
+                parsed += 1
+            time.sleep(1)
+        except Exception as e:
+            print(f"  Error parsing PDF {link}: {e}")
+
+    print(f"  City feed: {len(cases)} cases found")
     return cases
 
 
