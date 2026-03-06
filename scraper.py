@@ -251,23 +251,25 @@ def extract_all_report_pages(page, hearing_date):
         if page_num >= total_pages:
             break
 
-        # Navigate to next page via CurrentPage input (most reliable)
+        # Navigate to next page using page.locator() which supports triple_click
         try:
-            current_input = page.query_selector("input[title='Current Page']")
-            if current_input:
-                current_input.triple_click()
-                current_input.type(str(page_num + 1))
-                current_input.press("Return")
-                page.wait_for_timeout(3000)
+            current_loc = page.locator("input[title='Current Page']")
+            if current_loc.count() > 0:
+                current_loc.first.triple_click()
+                current_loc.first.fill(str(page_num + 1))
+                current_loc.first.press("Return")
+                page.wait_for_timeout(3500)
                 page_num += 1
             else:
-                # Fallback: click enabled Next Page input button
-                next_btns = page.query_selector_all("input[title='Next Page']")
+                # Fallback: click enabled Next Page button via locator
+                next_loc = page.locator("input[title='Next Page']")
+                cnt = next_loc.count()
                 clicked = False
-                for btn in next_btns:
+                for idx2 in range(cnt):
+                    btn = next_loc.nth(idx2)
                     if not btn.get_attribute("disabled"):
                         btn.click()
-                        page.wait_for_timeout(3000)
+                        page.wait_for_timeout(3500)
                         page_num += 1
                         clicked = True
                         break
