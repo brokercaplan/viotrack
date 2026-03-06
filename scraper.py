@@ -251,30 +251,32 @@ def extract_all_report_pages(page, hearing_date):
         if page_num >= total_pages:
             break
 
-        # Navigate to next page using page.locator() which supports triple_click
+        # Navigate to next page using JS to click the Next Page button
+        # The CurrentPage input has aspNetDisabled class in headless mode so we use JS
         try:
-            current_loc = page.locator("input[title='Current Page']")
-            if current_loc.count() > 0:
-                current_loc.first.click(click_count=3)
-                current_loc.first.fill(str(page_num + 1))
-                current_loc.first.press("Return")
-                page.wait_for_timeout(3500)
+            # Use JavaScript to find and click the active Next Page button
+            clicked = page.evaluate("""
+                () => {
+                    var btns = document.querySelectorAll("input[title='Next Page']");
+                    for (var i = 0; i < btns.length; i++) {
+                        if (!btns[i].disabled && btns[i].className.indexOf('aspNet') === -1) {
+                            btns[i].click();
+                            return true;
+                        }
+                    }
+                    // Try any input with Next in name
+                    var nextBtns = Array.from(document.querySelectorAll('input[type=image]')).filter(
+                        b => b.name && b.name.indexOf('Next') >= 0 && !b.disabled
+                    );
+                    if (nextBtns.length > 0) { nextBtns[0].click(); return true; }
+                    return false;
+                }
+            """)
+            if clicked:
+                page.wait_for_timeout(4000)
                 page_num += 1
             else:
-                # Fallback: click enabled Next Page button via locator
-                next_loc = page.locator("input[title='Next Page']")
-                cnt = next_loc.count()
-                clicked = False
-                for idx2 in range(cnt):
-                    btn = next_loc.nth(idx2)
-                    if not btn.get_attribute("disabled"):
-                        btn.click()
-                        page.wait_for_timeout(3500)
-                        page_num += 1
-                        clicked = True
-                        break
-                if not clicked:
-                    break
+                break
         except Exception as e:
             print(f"      Pagination error: {e}")
             break
