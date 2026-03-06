@@ -255,7 +255,7 @@ def extract_all_report_pages(page, hearing_date):
         try:
             current_loc = page.locator("input[title='Current Page']")
             if current_loc.count() > 0:
-                current_loc.first.triple_click()
+                current_loc.first.click(click_count=3)
                 current_loc.first.fill(str(page_num + 1))
                 current_loc.first.press("Return")
                 page.wait_for_timeout(3500)
