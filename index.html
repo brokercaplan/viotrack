@@ -87,8 +87,6 @@ const S = {
 
 function App() {
   const [tab, setTab] = useState(0);
-  const [showApiKeyModal, setShowApiKeyModal] = useState(function(){ return !getApiKey(); });
-  const [apiKeyInput, setApiKeyInput] = useState('');
   const [data, setData]           = useState(null);
   const [loading, setLoading]     = useState(true);
   const [planCase, setPlanCase]   = useState(null);
@@ -141,7 +139,9 @@ function App() {
   const openPlan = async (c) => {
     setPlanCase(c); setPlan(null); setPlanLoading(true);
     try {
-      if (!getApiKey()) { setShowApiKeyModal(true); setPlanLoading(false); return; }
+      const enteredKey = getApiKey() || prompt('Enter your Anthropic API key (sk-ant-...):');
+      if (!enteredKey) { setPlanLoading(false); return; }
+      if (!getApiKey()) setApiKeyInStorage(enteredKey);
       const d = await callClaude([{ role:"user", content:"Remediation plan for Miami Beach violation. Property: " + c.property + " Case: " + c.caseNum + " Violation: " + c.deptViol + " Type: " + c.type + " Desc: " + c.description + " Fine: $" + c.balance + " Hearing: " + c.hearing + ". Reply ONLY JSON: {priority:CRITICAL/HIGH/MEDIUM, estimatedCost, timeline, steps:[{step,action,who,contact,docNeeded,dueDate,notes}], warnings:[], quickWins:[]}" }], 1200);
       setPlan(JSON.parse(d.content[0].text.replace(/```json|```/g,"").trim()));
     } catch(e) {
@@ -158,7 +158,9 @@ function App() {
     const newContact = {id:Date.now(),name:c.owner,email:"",property:c.property,caseNum:c.caseNum,status:"Pending",date:new Date().toISOString().split("T")[0]};
     setContacts(prev => prev.find(x=>x.caseNum===c.caseNum) ? prev : [...prev, newContact]);
     try {
-      if (!getApiKey()) { setShowApiKeyModal(true); setEmailLoading(false); return; }
+      const enteredKey2 = getApiKey() || prompt('Enter your Anthropic API key (sk-ant-...):');
+      if (!enteredKey2) { setEmailLoading(false); return; }
+      if (!getApiKey()) setApiKeyInStorage(enteredKey2);
       const d = await callClaude([{ role:"user", content:"Professional outreach email from Aventura Code Violations to property owner " + c.owner + " for violation at " + c.property + " Case " + c.caseNum + " Type " + c.type + " Fine $" + c.balance.toLocaleString() + (c.dailyFine?" + $"+c.dailyFine+"/day":"") + " Hearing " + c.hearing + ". Include disclaimer. Reply ONLY JSON: {subject, body}" }], 900);
       const p = JSON.parse(d.content[0].text.replace(/```json|```/g,"").trim());
       setEmailDraft({to:"",subject:p.subject,body:p.body});
@@ -487,21 +489,6 @@ function App() {
                 <button onClick={exportCSV} style={{...S.btnP,padding:"10px 24px",fontSize:"14px"}}>⬇ Export to CSV</button>
               </div>
             )}
-          </div>
-        </div>
-      )}
-      {showApiKeyModal&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:"20px"}}>
-          <div style={{background:"white",borderRadius:"16px",padding:"32px",width:"100%",maxWidth:"460px",boxShadow:"0 24px 60px rgba(0,0,0,0.3)"}}>
-            <div style={{fontSize:"28px",marginBottom:"8px",textAlign:"center"}}>🔑</div>
-            <div style={{fontSize:"20px",fontWeight:"700",color:"#1a1a2e",textAlign:"center",marginBottom:"8px"}}>Enter Anthropic API Key</div>
-            <div style={{fontSize:"14px",color:"#6b7280",textAlign:"center",marginBottom:"20px",lineHeight:"1.6"}}>Required for AI features. Stored only in your browser localStorage.</div>
-            <input value={apiKeyInput} onChange={e=>setApiKeyInput(e.target.value)} placeholder="sk-ant-..." style={{...S.input,marginBottom:"12px",fontFamily:"monospace"}}/>
-            <div style={{display:"flex",gap:"10px"}}>
-              {getApiKey()&&<button onClick={()=>setShowApiKeyModal(false)} style={{...S.btnG,flex:1,padding:"11px",fontSize:"14px"}}>Cancel</button>}
-              <button onClick={()=>{if(apiKeyInput.trim().startsWith("sk-")){setApiKeyInStorage(apiKeyInput);setShowApiKeyModal(false);}else{alert("Please enter a valid key starting with sk-ant-");}}} style={{...S.btnP,flex:2,padding:"11px",fontSize:"15px"}}>Save Key</button>
-            </div>
-            <div style={{marginTop:"16px",textAlign:"center"}}><a href="https://console.anthropic.com/settings/keys" target="_blank" style={{fontSize:"13px",color:"#6c5ce7"}}>Get key at console.anthropic.com →</a></div>
           </div>
         </div>
       )}
