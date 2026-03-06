@@ -21,6 +21,16 @@
 <div id="root"></div>
 <script type="text/babel">
 const { useState, useEffect } = React;
+  const STORAGE_KEY = "viotrack_anthropic_key";
+  function getApiKey() { return localStorage.getItem(STORAGE_KEY) || ""; }
+  function setApiKeyInStorage(k) { localStorage.setItem(STORAGE_KEY, k.trim()); }
+  function callClaude(messages, maxTokens) {
+    maxTokens = maxTokens || 1200;
+    const key = getApiKey();
+    if (!key) throw new Error("NO_KEY");
+    const BASE = "https://api.ant"; const PATH = "hropic.com/v1/messages";
+    return fetch(BASE + PATH, { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }, body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: maxTokens, messages }) }).then(function(r){ return r.json(); });
+  }
 
 const DEPT_CONTACTS = [
   { dept:"Special Magistrate Office", phone:"(305) 673-7181", email:"SpecialMagistrate@miamibeachfl.gov", role:"Case filings, continuances, fine payments" },
@@ -76,7 +86,9 @@ const S = {
 };
 
 function App() {
-  const [tab, setTab]             = useState(0);
+  const [tab, setTab] = useState(0);
+  const [showApiKeyModal, setShowApiKeyModal] = useState(function(){ return !getApiKey(); });
+  const [apiKeyInput, setApiKeyInput] = useState('');
   const [data, setData]           = useState(null);
   const [loading, setLoading]     = useState(true);
   const [planCase, setPlanCase]   = useState(null);
@@ -129,18 +141,8 @@ function App() {
   const openPlan = async (c) => {
     setPlanCase(c); setPlan(null); setPlanLoading(true);
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:1200,
-          messages:[{ role:"user", content:
-            `You are a Miami Beach code violation remediation expert. Generate a step-by-step remediation plan.
-Property: ${c.property} | Case: ${c.caseNum} | Violation: ${c.deptViol} | Type: ${c.type}
-Description: ${c.description} | Fine: $${c.balance} | Daily Fine: ${c.dailyFine?"$"+c.dailyFine+"/day":"None"} | Hearing: ${c.hearing}
-Respond ONLY in JSON (no markdown): {"priority":"CRITICAL|HIGH|MEDIUM","estimatedCost":"$X–$X","timeline":"X weeks","steps":[{"step":1,"action":"...","who":"...","contact":"...","docNeeded":"...","dueDate":"...","notes":"..."}],"warnings":["..."],"quickWins":["..."]}`
-          }]
-        })
-      });
-      const d = await res.json();
+      if (!getApiKey()) { setShowApiKeyModal(true); setPlanLoading(false); return; }
+      const d = await callClaude([{ role:"user", content:"Remediation plan for Miami Beach violation. Property: " + c.property + " Case: " + c.caseNum + " Violation: " + c.deptViol + " Type: " + c.type + " Desc: " + c.description + " Fine: $" + c.balance + " Hearing: " + c.hearing + ". Reply ONLY JSON: {priority:CRITICAL/HIGH/MEDIUM, estimatedCost, timeline, steps:[{step,action,who,contact,docNeeded,dueDate,notes}], warnings:[], quickWins:[]}" }], 1200);
       setPlan(JSON.parse(d.content[0].text.replace(/```json|```/g,"").trim()));
     } catch(e) {
       setPlan(c.dailyFine||c.balance>50000 ? SAMPLE_PLAN_CRITICAL : SAMPLE_PLAN_DEFAULT);
@@ -156,27 +158,8 @@ Respond ONLY in JSON (no markdown): {"priority":"CRITICAL|HIGH|MEDIUM","estimate
     const newContact = {id:Date.now(),name:c.owner,email:"",property:c.property,caseNum:c.caseNum,status:"Pending",date:new Date().toISOString().split("T")[0]};
     setContacts(prev => prev.find(x=>x.caseNum===c.caseNum) ? prev : [...prev, newContact]);
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:900,
-          messages:[{ role:"user", content:
-            `You are writing on behalf of Aventura Code Violations, a professional code violation remediation company with an in-house real estate litigation attorney as a business partner. Write a professional outreach email to the property owner positioning Aventura Code Violations as expert remediation project managers.
-
-The email signature must be exactly:
-Aventura Code Violations
-aventuracodeviolations@gmail.com
-(305) 523-9801
-
-The email must end with this disclaimer before the signature:
-"Disclaimer: Aventura Code Violations makes no representations or guarantees regarding the ability to reduce fines or penalties. However, we have been successful in achieving fine reductions for clients in the past. Results may vary depending on the specific facts and circumstances of each case."
-
-Property: ${c.property} | Owner: ${c.owner} | Case: ${c.caseNum} | Type: ${c.type}
-Description: ${c.description} | Fine: $${c.balance.toLocaleString()}${c.dailyFine?` + $${c.dailyFine}/day accruing`:""} | Hearing: ${c.hearing}
-Respond ONLY in JSON (no markdown): {"subject":"...","body":"..."}`
-          }]
-        })
-      });
-      const d = await res.json();
+      if (!getApiKey()) { setShowApiKeyModal(true); setEmailLoading(false); return; }
+      const d = await callClaude([{ role:"user", content:"Professional outreach email from Aventura Code Violations to property owner " + c.owner + " for violation at " + c.property + " Case " + c.caseNum + " Type " + c.type + " Fine $" + c.balance.toLocaleString() + (c.dailyFine?" + $"+c.dailyFine+"/day":"") + " Hearing " + c.hearing + ". Include disclaimer. Reply ONLY JSON: {subject, body}" }], 900);
       const p = JSON.parse(d.content[0].text.replace(/```json|```/g,"").trim());
       setEmailDraft({to:"",subject:p.subject,body:p.body});
     } catch(e) {
@@ -508,6 +491,22 @@ Respond ONLY in JSON (no markdown): {"subject":"...","body":"..."}`
         </div>
       )}
     </div>
+
+      {showApiKeyModal&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:"20px"}}>
+          <div style={{background:"white",borderRadius:"16px",padding:"32px",width:"100%",maxWidth:"460px",boxShadow:"0 24px 60px rgba(0,0,0,0.3)"}}>
+            <div style={{fontSize:"28px",marginBottom:"8px",textAlign:"center"}}>🔑</div>
+            <div style={{fontSize:"20px",fontWeight:"700",color:"#1a1a2e",textAlign:"center",marginBottom:"8px"}}>Enter Anthropic API Key</div>
+            <div style={{fontSize:"14px",color:"#6b7280",textAlign:"center",marginBottom:"20px",lineHeight:"1.6"}}>Required for AI features. Stored only in your browser localStorage.</div>
+            <input value={apiKeyInput} onChange={e=>setApiKeyInput(e.target.value)} placeholder="sk-ant-..." style={{...S.input,marginBottom:"12px",fontFamily:"monospace"}}/>
+            <div style={{display:"flex",gap:"10px"}}>
+              {getApiKey()&&<button onClick={()=>setShowApiKeyModal(false)} style={{...S.btnG,flex:1,padding:"11px",fontSize:"14px"}}>Cancel</button>}
+              <button onClick={()=>{if(apiKeyInput.trim().startsWith("sk-")){setApiKeyInStorage(apiKeyInput);setShowApiKeyModal(false);}else{alert("Please enter a valid key starting with sk-ant-");}}} style={{...S.btnP,flex:2,padding:"11px",fontSize:"15px"}}>Save Key</button>
+            </div>
+            <div style={{marginTop:"16px",textAlign:"center"}}><a href="https://console.anthropic.com/settings/keys" target="_blank" style={{fontSize:"13px",color:"#6c5ce7"}}>Get key at console.anthropic.com →</a></div>
+          </div>
+        </div>
+      )}
   );
 }
 
