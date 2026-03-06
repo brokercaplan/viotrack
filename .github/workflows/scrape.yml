@@ -20,8 +20,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - run: pip install requests beautifulsoup4 pdfplumber playwright
-      - run: playwright install chromium --with-deps
+      - run: pip install requests beautifulsoup4
 
       - run: python scraper.py
 
