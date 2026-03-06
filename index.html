@@ -151,27 +151,52 @@ function App() {
   };
 
   const openOutreach = async (c) => {
-    setOutreachCase(c); setEmailLoading(true);
+    setOutreachCase(c);
+    setEmailLoading(true);
     setEmailDraft({to:"",subject:"",body:""});
     setCityFeed(f=>f.map(x=>x.id===c.id?{...x,contacted:true}:x));
     setTab(2);
     const newContact = {id:Date.now(),name:c.owner,email:"",property:c.property,caseNum:c.caseNum,status:"Pending",date:new Date().toISOString().split("T")[0]};
     setContacts(prev => prev.find(x=>x.caseNum===c.caseNum) ? prev : [...prev, newContact]);
+
+    const hearing = c.hearing || "your upcoming hearing";
+    const property = c.property || "your property";
+    const caseNum = c.caseNum || "";
+    const fine = c.balance > 0 ? "$" + c.balance.toLocaleString() : "pending";
+    const vtype = c.type || "violation";
+    const desc = c.description ? c.description.substring(0, 120) : "";
+
+    const subjectLine = "Re: Special Magistrate Case " + caseNum + " - " + property;
+    const bodyText = [
+      "Dear Property Owner / Respondent,",
+      "",
+      "I am writing regarding Special Magistrate Case #" + caseNum + " scheduled for hearing on " + hearing + " pertaining to the property at " + property + ".",
+      "",
+      "Our records indicate a " + vtype + (desc ? " (" + desc + ")" : "") + " with a current fine balance of " + fine + ".",
+      "",
+      "We would like to discuss options to resolve this matter prior to your scheduled hearing, which may include:",
+      "  • Negotiating a compliance timeline",
+      "  • Arranging a payment plan for outstanding fines",
+      "  • Coordinating required inspections or permits",
+      "",
+      "Please contact us at your earliest convenience so we can work toward a favorable resolution.",
+      "",
+      "Sincerely,",
+      "[Your Name / Company]",
+      "[Phone] | [Email]",
+    ].join("\n");
+
+    setEmailDraft({to: c.owner !== "—" ? c.owner : "", subject: subjectLine, body: bodyText});
+
     try {
-      const enteredKey2 = getApiKey() || prompt('Enter your Anthropic API key (sk-ant-...):');
-      if (!enteredKey2) { setEmailLoading(false); return; }
-      if (!getApiKey()) setApiKeyInStorage(enteredKey2);
-      const d = await callClaude([{ role:"user", content:"Professional outreach email from Aventura Code Violations to property owner " + c.owner + " for violation at " + c.property + " Case " + c.caseNum + " Type " + c.type + " Fine $" + c.balance.toLocaleString() + (c.dailyFine?" + $"+c.dailyFine+"/day":"") + " Hearing " + c.hearing + ". Include disclaimer. Reply ONLY JSON: {subject, body}" }], 900);
-      const p = JSON.parse(d.content[0].text.replace(/```json|```/g,"").trim());
-      setEmailDraft({to:"",subject:p.subject,body:p.body});
-    } catch(e) {
-      const ownerFirst = c.owner.includes(",") ? c.owner.split(",")[0] : "Property Owner";
-      setEmailDraft({
-        to:"",
-        subject:`Urgent: Code Violation at ${c.property} — Aventura Code Violations Can Help`,
-        body:`Dear ${ownerFirst},\n\nI'm reaching out on behalf of Aventura Code Violations regarding the recent violation at ${c.property} (Case ${c.caseNum}).\n\nWe specialize in complex code violation remediation, with an in-house real estate litigation attorney as a business partner. We manage the entire process — permits, contractors, Special Magistrate hearings, and fine mitigation.\n\nYour current fine is $${c.balance.toLocaleString()}${c.dailyFine?` with $${c.dailyFine}/day accruing`:""} and your hearing is scheduled for ${c.hearing}. Acting now could significantly reduce your total exposure.\n\nI'd welcome a 15-minute call at no cost to you.${DISCLAIMER}${SIGNATURE}`
-      });
-    }
+      const enteredKey2 = getApiKey();
+      if (enteredKey2) {
+        const aiResult = await callClaude(enteredKey2,
+          "Improve this compliance outreach email. Keep under 200 words. Return ONLY the email body.\n\n" + bodyText
+        );
+        if (aiResult) setEmailDraft(d => ({...d, body: aiResult}));
+      }
+    } catch(e) {}
     setEmailLoading(false);
   };
 
@@ -277,7 +302,7 @@ function App() {
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"20px",flexWrap:"wrap",gap:"10px"}}>
               <div>
                 <div style={{fontSize:"20px",fontWeight:"700",color:"#1a1a2e",fontFamily:"'Playfair Display',Georgia,serif"}}>Miami Beach — Live Violation Feed</div>
-                <div style={{fontSize:"14px",color:"#8892a4",marginTop:"4px"}}>{cityFeed.length} open cases · Scraped weekly from SM portal</div>
+                <div style={{fontSize:"14px",color:"#8892a4",marginTop:"4px"}}>{cityFeed.length} open cases · Scraped daily from SM portal</div>
               </div>
               <div style={{background:"#f0fdf4",color:"#16a34a",border:"1px solid #bbf7d0",padding:"8px 16px",borderRadius:"8px",fontSize:"13px",fontWeight:"600"}}>● Live Feed Active</div>
             </div>
