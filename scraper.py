@@ -142,11 +142,13 @@ def get_hidden_fields(soup) -> dict:
         if name: fields[name] = inp.get("value", "")
     return fields
 
+
 def scrape_city_feed() -> list:
     """
-    1. GET agenda listing page.
-    2. POST __doPostBack for each recent BUILDING/CODE hearing.
-    3. Parse embedded report HTML directly (no PDFs needed).
+    1. GET agenda listing, capture session + hidden fields.
+    2. For each recent BUILDING/CODE hearing, POST the doPostBack selection.
+    3. The postback redirects to AgendaSchedules - GET that URL directly.
+    4. Parse the SSRS report HTML embedded in the response.
     """
     print("\nScraping city agenda feed...")
     cases = []
@@ -156,10 +158,8 @@ def scrape_city_feed() -> list:
         soup = BeautifulSoup(resp.text, "html.parser")
         hidden = get_hidden_fields(soup)
 
-        # Find the agenda GridView table
         grid = soup.find("table", id=re.compile(r"GridView", re.I))
         if not grid:
-            # Try any table on the page
             grid = soup.find("table")
         if not grid:
             print("  Could not find agenda table")
@@ -178,13 +178,14 @@ def scrape_city_feed() -> list:
                 continue
             print(f"  Processing row {i}: {hearing_date} - {description}")
             try:
-                hcases = post_and_parse_agenda(soup, hidden, i, hearing_date)
+                hcases = fetch_agenda_schedule(hidden, i, hearing_date)
                 if hcases:
                     cases.extend(hcases)
                     processed += 1
                 time.sleep(2)
             except Exception as e:
                 print(f"    Error on row {i}: {e}")
+                traceback.print_exc()
             if processed >= 4:
                 break
     except Exception as e:
@@ -193,24 +194,60 @@ def scrape_city_feed() -> list:
     print(f"  City feed total: {len(cases)} cases")
     return cases
 
-def post_and_parse_agenda(original_soup, hidden_fields: dict, row_idx: int, hearing_date: str) -> list:
-    """POST __doPostBack to select a hearing row, then parse the AgendaSchedules HTML."""
+
+def fetch_agenda_schedule(hidden_fields: dict, row_idx: int, hearing_date: str) -> list:
+    """
+    Post the row selection, then GET /AgendaSchedules to get the rendered report.
+    The session cookie carries the state, so after a successful POST the
+    GET to AgendaSchedules returns the report for that row.
+    """
     payload = dict(hidden_fields)
     payload["__EVENTTARGET"]   = "ctl00$MainContent$GridViewAgendas"
     payload["__EVENTARGUMENT"] = "Select$" + str(row_idx)
+
+    # POST to select the row (sets session state on server)
     resp = SESSION.post(AGENDA_LIST_URL, data=payload, timeout=25)
     resp.raise_for_status()
-    return parse_agenda_html(resp.text, hearing_date)
+
+    # The response is an ASP.NET UpdatePanel partial-page response.
+    # Check if it redirected or if we need to GET AgendaSchedules separately.
+    final_url = resp.url
+    print(f"    POST response URL: {final_url}, size: {len(resp.text)}")
+
+    # If the POST stayed on the list page (UpdatePanel response), GET AgendaSchedules
+    if "AgendaSchedules" not in final_url:
+        resp2 = SESSION.get(
+            "https://apps.miamibeachfl.gov/energovagenda/Public/AgendaSchedules",
+            timeout=25
+        )
+        resp2.raise_for_status()
+        html = resp2.text
+        print(f"    GET AgendaSchedules: {len(html)} chars")
+    else:
+        html = resp.text
+
+    return parse_agenda_html(html, hearing_date)
+
 
 def parse_agenda_html(html: str, hearing_date: str) -> list:
     """
-    The AgendaSchedules response embeds the SSRS report as plain text in the HTML.
-    Extract case blocks by splitting on "Special M(aster|agistrate) Case#".
+    Parse SSRS report HTML. The report data is in span/table elements
+    inside the ReportArea div. We convert to text and split on case boundaries.
     """
     soup = BeautifulSoup(html, "html.parser")
-    # Get all text, using space separator to avoid merging words
-    text = soup.get_text(" ")
+
+    # Try to find the report area specifically
+    report_area = soup.find(id=re.compile(r"ReportArea|ReportControl|VisibleReport", re.I))
+    if report_area:
+        text = report_area.get_text(" ")
+    else:
+        text = soup.get_text(" ")
+
     text = re.sub(r"\s+", " ", text)
+
+    # Debug: show first 500 chars of what we have
+    print(f"    Text preview: {text[:200]!r}")
+
     blocks = re.split(r"(?=Special M(?:aster|agistrate) Case#)", text, flags=re.I)
     cases = []
     for block in blocks[1:]:
@@ -222,25 +259,26 @@ def parse_agenda_html(html: str, hearing_date: str) -> list:
     print(f"    Parsed {len(cases)} cases from agenda")
     return cases
 
+
 def extract_case_from_block(block: str, hearing_date: str) -> dict:
-    def find(pattern, default="—"):
+    def find(pattern, default="\u2014"):
         m = re.search(pattern, block, re.I | re.DOTALL)
         return m.group(1).strip() if m else default
 
     case_num  = find(r"Case#\s*(\S+)")
     dept_viol = find(r"Department Violation\s*#?\s*(\S+)")
-    address   = find(r"Property Address:\s*(.+?)(?:\s+(?:Department|Owner|\d+\s+\d+:\d+AM|\d+\s+\d+:\d+PM))")
+    address   = find(r"Property Address:\s*(.+?)(?:\s+(?:Department|Owner|\d+\s+\d+:\d+))")
     owner     = find(r"(?:c/o|Owner|Name):\s*(.+?)(?:\s+(?:AREA|Description|Status|Inspector))", "Unknown")
     desc      = find(r"Description:\s*(.+?)(?:\s+(?:Inspector|Status|Fine|Code|Violation Type))", "")
     status    = find(r"Status:\s*(\w+)")
     fine_raw  = find(r"\$([\d,]+(?:\.\d{2})?)", "0")
     vtype_raw = find(r"Violation Type:\s*(.+?)(?:\s+Code)", "")
 
-    if case_num == "—": return None
+    if case_num == "\u2014": return None
 
     return {
         "id":         abs(hash(case_num)) % 999999,
-        "property":   address.upper().strip() if address != "—" else "MIAMI BEACH",
+        "property":   address.upper().strip() if address != "\u2014" else "MIAMI BEACH",
         "caseNum":    case_num,
         "deptViol":   dept_viol,
         "type":       classify_type(dept_viol + " " + vtype_raw),
@@ -253,6 +291,7 @@ def extract_case_from_block(block: str, hearing_date: str) -> dict:
         "dateAdded":  datetime.utcnow().strftime("%Y-%m-%d"),
         "contacted":  False,
     }
+
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
