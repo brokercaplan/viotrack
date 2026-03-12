@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-03-11T10:12:43.685058Z",
+  "lastUpdated": "2026-03-12T10:12:35.494006Z",
   "myProperties": [
     {
       "id": 1,
@@ -2948,6 +2948,22 @@
       "owner": "Department Violation #",
       "description": "REF: Trailer in rear of property must be removed,",
       "dateAdded": "2026-03-10",
+      "contacted": false,
+      "source": "cityFeed"
+    },
+    {
+      "id": 85867,
+      "property": "532 MICHIGAN AVE",
+      "caseNum": "SMC2023-02705",
+      "deptViol": "PM2023-06343",
+      "type": "PM2023-06343 (1) Section 58-293f 58-297e. Cracked and/or broken stucco shall be repaired in a workmanlike manner. REF: Broken piece of stucco in middle of building in alley about 4 ft high, multiple cracks along the wall in the alley on the west side of the building. Large crack running up the wall on the northwest corner of the building on both the north wall and west wall of the building. Crack between the windows on the south wall on the west side of the building. Cracks all along the wall on the outside of the building on the south side. Cracks along the wall on the outside of the building on the east side facing Michigan Ave. 1st Offense BWC Used M. Flesher / 762 Section 58-293f, 58-297e: Exterior surfaces of structure are not properly maintained and shall be scraped and painted. REF: The ledge along the roof along all 4 sides of the building needs to be painted. 1st Offense BWC Used M. Flesher / 762",
+      "status": "Fine Imposed by Special Magistrate",
+      "hearing": "4/20/2026",
+      "balance": 150,
+      "dailyFine": null,
+      "owner": "Department Violation #",
+      "description": "(1) Section 58-293f 58-297e. Cracked and/or broken stucco shall be repaired in a workmanlike manner.",
+      "dateAdded": "2026-03-12",
       "contacted": false,
       "source": "cityFeed"
     }
